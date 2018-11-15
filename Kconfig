@@ -1,0 +1,178 @@
+menu "DFUSMART custom app"
+
+config APP_DFUSMART
+  bool "Dfusmart App"
+  depends on STM32F4
+  default y
+  select USR_LIB_WOOKEY
+  ---help---
+    Say y if you want to embbed DFUSMART custom application.
+
+config APP_DFUSMART_FW
+  bool "Dfusmart App for firmware mode"
+  depends on APP_DFUSMART
+  depends on STM32F4
+  default y
+  ---help---
+    Say y if you want to embbed Dfusmart custom application in firmware.
+
+config APP_DFUSMART_DFU
+  bool "Dfusmart App for DFU mode"
+  depends on APP_DFUSMART
+  depends on FIRMWARE_DFU
+  depends on STM32F4
+  default y
+  ---help---
+    Say y if you want to embbed Dfusmart custom application in DFU.
+
+config APP_DFUSMART_NUMSLOTS
+  int "Number of required slots"
+  depends on APP_DFUSMART
+  default 1
+  ---help---
+    specify the number of slots required by the application text and data/bss.
+    remember that the number of total slots is limited by the hardware.
+    For example, there is 8 32kb sized slots in STM32F4, reduced to 7 when using SHM for
+    .text + .data in flash, and 8 (reduced to 7 with SHM) slots of 16kb in RAM.
+    This choice has an impact on the total number of applications that can be loaded
+    in the firmware.
+
+config APP_DFUSMART_STACKSIZE
+  int "Stack size"
+  depends on APP_DFUSMART
+  default 8192
+  ---help---
+    Specify the application stack size, in bytes. By default, set to 8192
+    (i.e. 8k). Depending on the number of slots required, and the usage,
+    the stack can be bigger or smaller.
+    
+
+config APP_DFUSMART_SHM
+  bool "DFUSMART requires shared memory to communicate with others"
+  depends on APP_DFUSMART
+  default n
+  ---help---
+    say YES if DFUSMART requires shared memory to communicate with others
+
+menu "Permissions"
+    visible if APP_DFUSMART
+
+menu "Devices"
+
+config APP_DFUSMART_PERM_DEV_DMA
+    bool "App has capacity to register DMA streams"
+    default n
+    ---help---
+    if no, the application can't declare a DMA. If y, the application
+    is able to require one or more secure DMA stream(s).
+
+config APP_DFUSMART_PERM_DEV_CRYPTO
+    int "App can interact with HW cryptographic module"
+    default 0
+    range 0 3
+    ---help---
+    If 0, the application has no access to any HW cryp module.
+    If 1, the application is able to use a HW cryp module configured
+    by another application.
+    If 2, the application is able to configure (inject keys) but can't
+    use the crypt module (no IRQ handler).
+    If 3, the application as a full, autonomous access to the HW cryp
+    module
+
+config APP_DFUSMART_PERM_DEV_BUSES
+    bool "App has capacity to use buses (SPI, I2C, USART...)"
+    default n
+    ---help---
+    If n, the application can't access any buses (I2C, SPI, USART).
+    If y, the application can require a bus mapping.
+
+config APP_DFUSMART_PERM_DEV_EXTI
+    bool "App can use EXTI or GPIO driven external interrupts"
+    default n
+
+config APP_DFUSMART_PERM_DEV_TIM
+    bool "App can register a hardware timer"
+    default n
+    ---help---
+    If n, the application can't require a timer from the kernel (using
+    the timer API). If y, the application can require one or more HW
+    timer(s).
+
+endmenu
+
+menu "Time"
+
+config APP_DFUSMART_PERM_TIM_GETCYCLES
+    int "App has capacity to get current timestamp from kernel"
+    default 0
+    range 0 3
+    ---help---
+    If 0, the application has no access to timestamping.
+    If 1, the application is able to get tick accurate timestamping.
+    If 2, the application is able to get microsecond accurate timestamping.
+    If 3, the application is able to get cycle accurate timestamping.
+
+endmenu
+
+menu "Tasking"
+
+config APP_DFUSMART_PERM_TSK_FISR
+    bool "App is allowed to request main thread execution after ISR"
+    default n
+    ---help---
+    If y, the application is able to request its main thread execution
+    just after specific ISRs. This is done using the dev_irq_mode_t
+    structure in device_t struct, using the IRQ_ISR_FORCE_MAINTHREAD value.
+    If n, this field can't be set to this value.
+
+config APP_DFUSMART_PERM_TSK_FIPC
+    bool "App is allowed to request peer execution on syncrhnous send IPC"
+    default n
+    ---help---
+    If y, the application is able to request peer thread execution
+    when sending syncrhonous IPC.
+
+config APP_DFUSMART_PERM_TSK_RESET
+    bool "App is allowed to request a board software reset"
+    default n
+    ---help---
+    If y, the application is able to request a MCU reset. This is usefull
+    only if the application is handling events that require urgent reactivity
+    implying board reset.
+
+config APP_DFUSMART_PERM_TSK_UPGRADE
+    bool "App is allowed to upgrade the firmware"
+    default n
+    ---help---
+    If y, the application is able to map the embedded flash device in
+    order to upgrade the overall firmware. This permission should
+    be hosted by a task with no external access (USB, USART...)
+
+config APP_DFUSMART_PERM_TSK_RNG
+    bool "App is allowed to access an an entropy input source, through sys_get_random"
+    default n
+    ---help---
+    If y, the application is able to request random content from the
+    kernel to generate entropy. This can be use for various needs.
+
+
+endmenu
+
+menu "Memory management"
+
+config APP_DFUSMART_PERM_MEM_DYNAMIC_MAP
+    bool "App is allow to declare MAP_VOLUNTARY devices"
+    default n
+    ---help---
+    If y, the task is allowed to declare devices that are not automatically
+    mapped, but that are mapped/unmapped voluntary using sys_cfg() syscalls.
+    This permission does not give access to any devices not already declared
+    but allow dynamic (un)mapping of previously declared ones.
+
+endmenu
+
+
+
+endmenu
+
+endmenu
