@@ -12,7 +12,7 @@ config APP_DFUSMART_FW
   bool "Dfusmart App for firmware mode"
   depends on APP_DFUSMART
   depends on STM32F4
-  default y
+  default n
   ---help---
     Say y if you want to embbed Dfusmart custom application in firmware.
 
@@ -46,13 +46,16 @@ config APP_DFUSMART_STACKSIZE
     (i.e. 8k). Depending on the number of slots required, and the usage,
     the stack can be bigger or smaller.
     
-
-config APP_DFUSMART_SHM
-  bool "DFUSMART requires shared memory to communicate with others"
-  depends on APP_DFUSMART
-  default n
+config APP_DFUSMART_PRIO
+  int "DFUSmart application priority"
+  default 2
   ---help---
-    say YES if DFUSMART requires shared memory to communicate with others
+    Set the Smart application priority (between 0 (the lower) to 255 (the higher)).
+    Only used when the RMA scheduler is executed. In this later case:
+    - Tasks of higher priority are executed while they are runnable
+    - Tasks of same priority are executed respecting a Round-Robin scheduling
+    When using priority and RMA scheduling, please take care to yield()
+    as much as possible to avoid deny of service to lower priority tasks
 
 menu "Permissions"
     visible if APP_DFUSMART
