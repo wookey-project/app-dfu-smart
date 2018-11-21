@@ -252,6 +252,7 @@ int _main(uint32_t task_id)
 
     // smartcard vars
     int tokenret = 0;
+    int dev_desc;
 
     //
 
@@ -265,6 +266,26 @@ int _main(uint32_t task_id)
 
 
     cryp_early_init(false, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
+
+#if CONFIG_WOOKEY
+    // led info
+    //
+    device_t dev = { 0 };
+    strncpy(dev.name, "smart_dfu_led", sizeof("smart_dfu_led"));
+    dev.gpio_num = 1;
+    dev.gpios[0].mask = GPIO_MASK_SET_MODE | GPIO_MASK_SET_PUPD | GPIO_MASK_SET_SPEED;
+    dev.gpios[0].kref.port = GPIO_PC;
+    dev.gpios[0].kref.pin = 5;
+    dev.gpios[0].pupd = GPIO_NOPULL;
+    dev.gpios[0].mode = GPIO_PIN_OUTPUT_MODE;
+    dev.gpios[0].speed = GPIO_PIN_HIGH_SPEED;
+
+    ret = sys_init(INIT_DEVACCESS, &dev, &dev_desc);
+    if (ret != 0) {
+        printf("Error while declaring LED GPIO device: %d\n", ret);
+    }
+#endif
+
 
     tokenret = token_early_init();
     switch (tokenret) {
@@ -284,6 +305,12 @@ int _main(uint32_t task_id)
     printf("set init as done\n");
     ret = sys_init(INIT_DONE);
     printf("sys_init returns %s !\n", strerror(ret));
+
+
+#if CONFIG_WOOKEY
+    /* toggle led ON */
+    sys_cfg(CFG_GPIO_SET, (uint8_t)((('C' - 'A') << 4) + 5), 1);
+#endif
 
     /*******************************************
      * let's synchronize with other tasks
