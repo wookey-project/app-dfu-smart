@@ -32,10 +32,8 @@ LDFLAGS += $(AFLAGS) -fno-builtin -nostdlib -nostartfiles -Wl,-Map=$(APP_BUILD_D
 
 EXTRA_LDFLAGS ?= -Tdfusmart.fw1.ld
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR) -fno-builtin -nostdlib --enable-objc-gc -Wl,--gc-sections
-LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -lrng -laes -lhmac -lstd -lsign -L$(APP_BUILD_DIR)
+LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -laes -lhmac -lstd -lsign -L$(APP_BUILD_DIR)
 
-
-#LD_LIBS += -laes -lhmac -lcryp -lrng  -lsign -ltoken -ldrviso7816 -liso7816 -lusart -lstd -L$(APP_BUILD_DIR)
 
 BUILD_DIR ?= $(PROJ_FILE)build
 
