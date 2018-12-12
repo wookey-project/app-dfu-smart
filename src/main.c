@@ -466,8 +466,8 @@ int _main(uint32_t task_id)
                 /********* Key injection request *************/
                 case MAGIC_CRYPTO_INJECT_CMD:
                     {
-                        // A DFU chunk has been received. chunk id is passed in the
-                        // received IPC
+                        // A DFU chunk has been received. chunk id is passed
+                        // in the received IPC
 
                         ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
                         ipc_sync_cmd.state = SYNC_DONE;
@@ -567,8 +567,6 @@ int _main(uint32_t task_id)
 err:
     printf("Oops\n");
     while (1) {
-        // wait 2secs and reset
-        sys_sleep(2000, SLEEP_MODE_INTERRUPTIBLE);
         sys_reset();
     }
     return 0;
