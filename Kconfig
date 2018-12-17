@@ -5,6 +5,9 @@ config APP_DFUSMART
   depends on STM32F4
   default y
   select USR_LIB_WOOKEY
+  select USR_DRV_CRYP
+  select USR_LIB_AES
+  select USR_LIB_HMAC
   ---help---
     Say y if you want to embbed DFUSMART custom application.
 
