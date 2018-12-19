@@ -13,6 +13,9 @@
 #include "wookey_ipc.h"
 #include "autoconf.h"
 
+/* Crypto helpers for DFU */
+#include "dfu_header.h"
+
 #define SMART_DEBUG 1
 
 token_channel curr_token_channel = { .channel_initialized = 0, .secure_channel = 0, .IV = { 0 }, .first_IV = { 0 }, .AES_key = { 0 }, .HMAC_key = { 0 }, .pbkdf2_iterations = 0, .platform_salt_len = 0 };
@@ -368,11 +371,8 @@ int _main(uint32_t task_id)
     }
 
     /*********************************************
-     * AUTH token communication, to get key from it
+     * DFU token communication
      *********************************************/
-
-    unsigned char CBC_ESSIV_key[32] = {0};
-    unsigned char CBC_ESSIV_h_key[32] = {0};
 
     /* Register smartcard removal handler */
     curr_token_channel.card.type = SMARTCARD_CONTACT;
@@ -387,10 +387,17 @@ int _main(uint32_t task_id)
         .request_pet_name_confirmation = dfu_token_request_pet_name_confirmation
     };
     /* this call generates authentication request to PIN */
-    if(!tokenret && dfu_token_exchanges(&curr_token_channel, &dfu_token_callbacks, 0, 0))
+    /* NB: we get back our decrypted signature public key here */
+    unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
+    unsigned int decrypted_sig_pub_key_data_len = sizeof(decrypted_sig_pub_key_data);
+    if(!tokenret && dfu_token_exchanges(&curr_token_channel, &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len))
     {
         goto err;
     }
+#ifdef SMART_DEBUG
+    printf("Decrypted signature public key (size %d):\n", decrypted_sig_pub_key_data_len);
+    hexdump(decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len);
+#endif
 
     /* Now that we have received our assets, we can lock the token.
      * We maintain the secure channel opened for a while, we only lock the
@@ -399,30 +406,6 @@ int _main(uint32_t task_id)
     if(token_user_pin_lock(&curr_token_channel)){ 
         goto err;
     }
-
-#ifdef SMART_DEBUG
-    printf("key received:\n");
-    hexdump(CBC_ESSIV_key, 32);
-    printf("hash received:\n");
-    hexdump(CBC_ESSIV_h_key, 32);
-#endif
-
-    /* inject key in CRYP device, iv=0, encrypt by default */
-#if 0
-#ifdef CONFIG_AES256_CBC_ESSIV
-    cryp_init_injector(CBC_ESSIV_key, KEY_256);
-    printf("AES256_CBC_ESSIV used!\n");
-#else
-#ifdef CONFIG_TDES_CBC_ESSIV 
-    cryp_init_injector(CBC_ESSIV_key, KEY_192);
-    /* In order to avoid cold boot attacks, we can safely erase the master key! */
-    memset(CBC_ESSIV_key, 0, sizeof(CBC_ESSIV_key));
-    printf("TDES_CBC_ESSIV used!\n");
-#else
-#error "No FDE algorithm has been selected ..."
-#endif
-#endif
-#endif
 
     printf("cryptography and smartcard initialization done!\n");
 
@@ -445,6 +428,10 @@ int _main(uint32_t task_id)
     /*******************************************
      * Smart main event loop
      *******************************************/
+    /* Variables holding the header and the signature of the firmware */
+    dfu_update_header_t dfu_header;
+    uint8_t sig[EC_MAX_SIGLEN];
+    uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
 
     while (1) {
         // detect Smartcard extraction using EXTI IRQ
@@ -455,13 +442,64 @@ int _main(uint32_t task_id)
         if (ret != SYS_E_DONE) {
             continue;
         }
-       
 	/***************************************************************************/ 
         if (id == id_crypto) {
             /*******************************
              * Managing Crypto task IPC
              ******************************/
             switch (ipc_sync_cmd_data.magic) {
+
+
+                case MAGIC_DFU_HEADER_SEND:
+                    {
+                        // A DFU header has been received: get it and parse it
+#ifdef SMART_DEBUG
+                        printf("We have a DFU header IPC, start receiveing\n");
+#endif
+                        uint32_t tmp_buff_offset = 0;
+                        while(ipc_sync_cmd_data.data_size != 0){
+                            if((id != id_crypto) || (ipc_sync_cmd_data.magic != MAGIC_DFU_HEADER_SEND)){
+#ifdef SMART_DEBUG
+                                printf("Error during DFU header receive ...\n");
+                                goto err;
+#endif
+                            }
+                            if(tmp_buff_offset >= sizeof(tmp_buff)){
+                                /* We have filled all our buffer, continue to receive without filling */
+                                continue;
+                            }
+                            else if(tmp_buff_offset+ipc_sync_cmd_data.data_size >= sizeof(tmp_buff)){
+                                memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, sizeof(tmp_buff)-tmp_buff_offset);
+                                tmp_buff_offset += sizeof(tmp_buff)-tmp_buff_offset;
+                            }
+                            else{
+                                memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, ipc_sync_cmd_data.data_size);
+                                tmp_buff_offset += ipc_sync_cmd_data.data_size;
+                            }
+                            size = sizeof (struct sync_command_data);
+                            ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
+                            if (ret != SYS_E_DONE) {
+                                continue;
+                            }
+                        }
+
+                        dfu_print_header((dfu_update_header_t*)tmp_buff);
+
+                        if(dfu_parse_header(tmp_buff, sizeof(tmp_buff), &dfu_header, sig, sizeof(sig))){
+#ifdef SMART_DEBUG
+                            printf("Error: bad header received from USB through crypto!\n");
+#endif
+
+                            while(1){
+
+                            }
+                        }
+#ifdef SMART_DEBUG
+                        dfu_print_header(&dfu_header);
+#endif
+                        break;
+                    }
+
 
                 /********* Key injection request *************/
                 case MAGIC_CRYPTO_INJECT_CMD:
@@ -501,33 +539,33 @@ int _main(uint32_t task_id)
                          */
                         if (   ipc_sync_cmd_data.data.req.sc_type == SC_PET_PIN
                             && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
-                            /* set the new pet pin. The CRYPTO_AUTH_CMD must have been passed and the channel being unlocked */
+                            /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
                             printf("PIN require a Pet Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_PIN };
                             if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
-                                printf("Unable to change pet pin !!!\n");
+                                printf("Unable to change pet pin!!!\n");
                                 continue;
                             }
                             printf("New pet pin registered\n");
                         } else if (   ipc_sync_cmd_data.data.req.sc_type == SC_USER_PIN
                                    && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
-                            /* set the new pet pin. The CRYPTO_AUTH_CMD must have been passed and the channel being unlocked */
+                            /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
                             printf("PIN require a User Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_USER_PIN };
                             if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
-                                printf("Unable to change user pin !!!\n");
+                                printf("Unable to change user pin!!!\n");
                                 continue;
                             }
                             printf("New user pin registered\n");
                         } else if (   ipc_sync_cmd_data.data.req.sc_type == SC_PET_NAME
                                    && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
-                            /* set the new pet pin. The CRYPTO_AUTH_CMD must have been passed and the channel being unlocked */
+                            /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
                             printf("PIN require a Pet Name update\n");
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_NAME };
                             if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
-                                printf("Unable to change pet name !!!\n");
+                                printf("Unable to change pet name!!!\n");
                                 continue;
                             }
                             printf("New pet name registered\n");
