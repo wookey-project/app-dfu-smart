@@ -483,20 +483,53 @@ int _main(uint32_t task_id)
                             }
                         }
 
-                        dfu_print_header((dfu_update_header_t*)tmp_buff);
-
                         if(dfu_parse_header(tmp_buff, sizeof(tmp_buff), &dfu_header, sig, sizeof(sig))){
 #ifdef SMART_DEBUG
                             printf("Error: bad header received from USB through crypto!\n");
 #endif
+                            ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
+                            ipc_sync_cmd.state = SYNC_DONE;
+                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
 
-                            while(1){
+                            continue;
 
-                            }
                         }
 #ifdef SMART_DEBUG
                         dfu_print_header(&dfu_header);
 #endif
+#if 0 /* FIXME: not operational yet !!!*/
+                        /* now let's ask the user for validation */
+                        ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
+                        ipc_sync_cmd_data.state = SYNC_DONE;
+                        ipc_sync_cmd_data.data.u32[0] = dfu_header.magic;
+                        ipc_sync_cmd_data.data.u32[1] = dfu_header.version;
+                        ipc_sync_cmd_data.data_size = 2;
+                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+
+                        /* Now wait for Acknowledge from pin */
+                        id = id_pin;
+                        size = sizeof(struct sync_command_data); /* max pin size: 32 */
+
+                        ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
+                        printf("received (in)validation from PIN\n");
+                        if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_INVALID) {
+                            /* Pin said it is invalid, returning invalid to DFU and break the download management */
+                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            continue;
+                        }
+#endif
+
+
+                        /* PIN said it is okay, continuing */
+
+                        memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
+                        ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_VALID;
+                        ipc_sync_cmd_data.state = SYNC_DONE;
+                        ipc_sync_cmd_data.data.u16[0] = sizeof(dfu_header) + dfu_header.siglen;
+                        ipc_sync_cmd_data.data_size = 1;
+                        sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+
+//                        dfu_token_begin_decrypt_session(&curr_token_channel, tmp_buf, sizeof(dfu_header));
                         break;
                     }
 
