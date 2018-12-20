@@ -12,307 +12,60 @@
 #include "aes.h"
 #include "wookey_ipc.h"
 #include "autoconf.h"
+#include "main.h"
+#include "token.h"
+
+uint8_t id_pin = 0;
 
 /* Crypto helpers for DFU */
 #include "dfu_header.h"
 
 #define SMART_DEBUG 1
+#define SMART_DERIVATION_BECHMARK 0
 
-token_channel curr_token_channel = { .channel_initialized = 0, .secure_channel = 0, .IV = { 0 }, .first_IV = { 0 }, .AES_key = { 0 }, .HMAC_key = { 0 }, .pbkdf2_iterations = 0, .platform_salt_len = 0 };
-uint8_t id_pin = 0;
+static volatile t_dfusmart_state task_state = DFUSMART_STATE_INIT;
 
-int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_type, token_pin_actions action)
+#if SMART_DEBUG
+static const char *state_tab[] = {
+    "<none>",
+    "DFUSMART_STATE_INIT",
+    "DFUSMART_STATE_IDLE",
+    "DFUSMART_STATE_HEADER",
+    "DFUSMART_STATE_AUTH",
+    "DFUSMART_STATE_DWNLOAD",
+    "DFUSMART_STATE_CHECKSIG",
+    "DFUSMART_STATE_FLASHUPDATE",
+    "DFUSMART_STATE_ERROR",
+};
+#endif
+
+t_dfusmart_state
+get_task_state(void) {
+    return task_state;
+}
+
+void
+set_task_state(t_dfusmart_state state) {
+#if SMART_DEBUG
+    printf("state: %s => %s\n", state_tab[task_state], state_tab[state]);
+#endif
+    task_state = state;
+}
+
+bool is_valid_transition(t_dfusmart_state state, uint8_t magic)
 {
-    struct sync_command_data ipc_sync_cmd = { 0 };
-    uint8_t ret;
-    uint8_t id;
-    logsize_t size = 0;
-    uint32_t cmd_magic;
-    uint32_t resp_magic;
-
-    if(action == TOKEN_PIN_AUTHENTICATE){
-        printf("Request PIN for authentication\n");
-        ipc_sync_cmd.data.req.sc_req = SC_REQ_AUTHENTICATE;
-    }
-    else if (action == TOKEN_PIN_MODIFY){
-        printf("Request PIN for modification\n");
-        ipc_sync_cmd.data.req.sc_req = SC_REQ_MODIFY;
-    }
-    else{
-        goto err;
-    }
-
-    /*********************************************
-     * Request PIN to pin task
-     *********************************************/
-    cmd_magic = MAGIC_CRYPTO_PIN_CMD;
-    resp_magic = MAGIC_CRYPTO_PIN_RESP;
-
-    if(pin_type == TOKEN_PET_PIN){
-        printf("Ask pet pin to PIN task\n");
-        ipc_sync_cmd.data.req.sc_type = SC_PET_PIN;
-    } else if (pin_type == TOKEN_USER_PIN){
-	printf("Ask user pin to PIN task\n");
-        ipc_sync_cmd.data.req.sc_type = SC_USER_PIN;
-    }
-    else{
-	printf("Error: asking for unknown type pin ...\n");
-	goto err;
-    }
-    ipc_sync_cmd.magic = cmd_magic;
-    ipc_sync_cmd.state = SYNC_ASK_FOR_DATA;
-
-    do {
-        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
-
-    /* Now wait for Acknowledge from pin */
-    id = id_pin;
-    size = sizeof(struct sync_command_data); /* max pin size: 32 */
-
-    ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-    if (   ipc_sync_cmd.magic == resp_magic
-            && ipc_sync_cmd.state == SYNC_DONE) {
-        printf("received pin from PIN\n");
-        if(*pin_len < ipc_sync_cmd.data_size){
-              goto err;
-        }
-        memcpy(pin, (void*)&(ipc_sync_cmd.data.u8), ipc_sync_cmd.data_size);
-        *pin_len = ipc_sync_cmd.data_size;
-        return 0;
-    }
-
-err:
-    return -1;
-}
-
-int dfu_token_acknowledge_pin(token_ack_state ack, token_pin_types pin_type, token_pin_actions action, uint32_t remaining_tries)
-{
-    struct sync_command_data   ipc_sync_cmd = { 0 };
-    uint8_t ret;
-
-    if(action == TOKEN_PIN_AUTHENTICATE){
-        printf("acknowledge authentication PIN\n");
-        /* int acknowledge of authentication, returning remaining tries */
-        ipc_sync_cmd.data.u32[0] = remaining_tries;
-        ipc_sync_cmd.data_size = 4;
-    }
-    else if (action == TOKEN_PIN_MODIFY){
-        printf("acknowledge modification PIN\n");
-    }
-    else{
-        goto err;
-    }
-
-
-    if (pin_type == TOKEN_USER_PIN || pin_type == TOKEN_PET_PIN) {
-       ipc_sync_cmd.magic = MAGIC_CRYPTO_PIN_RESP;
-    } else {
-        goto err;
-    }
-    if(ack == TOKEN_ACK_VALID){
-    	ipc_sync_cmd.state = SYNC_ACKNOWLEDGE;
-    } else{
-    	ipc_sync_cmd.state = SYNC_FAILURE;
-    }
-    //do {
-        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-        if (ret != SYS_E_DONE) {
-            printf("unable to acknowledge!\n");
-            while (1);
-        }
-    //} while (ret == SYS_E_BUSY);
-
-    /* an invalid pin is considered as an error, we stop here, returning an error. */
-    if (ack != TOKEN_ACK_VALID) {
-        goto err;
-    }
-	return 0;
-err:
-	return -1;
-}
-
-int dfu_token_request_pet_name(char *pet_name, unsigned int *pet_name_len)
-{
-    struct sync_command_data ipc_sync_cmd_data = { 0 };
-    uint8_t ret;
-    uint8_t id;
-    logsize_t size = 0;
-    uint32_t cmd_magic;
-    uint32_t resp_magic;
-
-    /*********************************************
-     * Request PET name to pin task
-     *********************************************/
-    cmd_magic = MAGIC_CRYPTO_PIN_CMD;
-    resp_magic = MAGIC_CRYPTO_PIN_RESP;
-
-    ipc_sync_cmd_data.magic = cmd_magic;
-    ipc_sync_cmd_data.state = SYNC_ASK_FOR_DATA;
-    // TODO: set data_size please
-    ipc_sync_cmd_data.data.req.sc_type = SC_PET_NAME;
-    ipc_sync_cmd_data.data.req.sc_req = SC_REQ_MODIFY;
-
-    do {
-      ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
-    } while (ret == SYS_E_BUSY);
-
-    /* Now wait for Acknowledge from pin */
-    id = id_pin;
-    size = sizeof(struct sync_command_data); /* max pin size: 32 */
-
-    ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
-    if (   ipc_sync_cmd_data.magic == resp_magic
-            && ipc_sync_cmd_data.state == SYNC_DONE) {
-        printf("received pet name from PIN: %s, size: %d\n",
-                (char*)ipc_sync_cmd_data.data.u8,
-                ipc_sync_cmd_data.data_size);
-        if(*pet_name_len < ipc_sync_cmd_data.data_size){
-              printf("pet name len (%d) too long !\n", ipc_sync_cmd_data.data_size);
-              goto err;
-        }
-        memcpy(pet_name, (void*)&(ipc_sync_cmd_data.data.u8), ipc_sync_cmd_data.data_size);
-        *pet_name_len = ipc_sync_cmd_data.data_size;
-        return 0;
-    }
-
-err:
-    return -1;
-}
-
-/* [RB] NOTE: since sending APDUs during heavily loaded tasks scheduling is challenging, we have to deal with possible
- * smartcard secure channel loss ... In order to recover from such an issue, we try to renegotiate the secure channel
- * using saved keys. This is not satisfying from a security perspective: we want to forget/erase such keys asap. However,
- * from an end user perspective, providing the PINs each time a desynchronization is detected can be very painful.
- * One should notice that such a recovery system is specifically necessary during DFU since the USB task is on heavy duty
- * with keep alive requests from the host to answer with timing constraints ...
- */
-#define DFU_TOKEN_MAX_TRIES 10
-static int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const unsigned char *header, uint32_t header_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
-        unsigned int num_tries;
-        int ret = 0;
-        num_tries = 0;
-	unsigned int remaining_tries = 0;
-        ec_curve_type curve;
-
-	/* Sanity check */
-	if(saved_decrypted_keybag_num < 3){
-		ret = -1;
-		goto err;
-	}
-	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
-		ret = -1;
-		goto err;
-	}
-	curve = channel->curve;
-        while(1){	
-		ret = dfu_token_begin_decrypt_session(channel, header, header_len);
-                num_tries++;
-		if(!ret){
-			return 0;
-		}
-                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
-			ret = -1;
-                        goto err;
-                }
-		/* We try to renegotiate a secure channel */
-		token_zeroize_secure_channel(channel);
-		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
-			ret = -1;
-			goto err;
-		}
-	}
-
-err:
-        return ret;
-}
-
-static int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
-        unsigned int num_tries;
-        int ret = 0;
-        num_tries = 0;
-	unsigned int remaining_tries = 0;
-        ec_curve_type curve;
-
-	/* Sanity check */
-	if(saved_decrypted_keybag_num < 3){
-		ret = -1;
-		goto err;
-	}
-	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
-		ret = -1;
-		goto err;
-	}
-	curve = channel->curve;
-        while(1){	
-		ret = dfu_token_derive_key(channel, derived_key, derived_key_len);
-                num_tries++;
-		if(!ret){
-			return 0;
-		}
-                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
-			ret = -1;
-                        goto err;
-                }
-		/* We try to renegotiate a secure channel */
-		token_zeroize_secure_channel(channel);
-		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
-			ret = -1;
-			goto err;
-		}
-	}
-
-err:
-        return ret;
+    /* FIXME: need automaton tab to be written */
+    state = state;
+    magic = magic;
+    return true;
 }
 
 
-
-int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int pet_name_len)
-{
-    /************* Send pet name to pin */
-    struct sync_command_data ipc_sync_cmd = { 0 };
-    logsize_t size = 0;
-    uint8_t id = 0;
-    uint8_t ret;
-
-    ipc_sync_cmd.magic = MAGIC_CRYPTO_PIN_CMD;
-    ipc_sync_cmd.state = SYNC_WAIT;
-    ipc_sync_cmd.data.req.sc_type = SC_PET_NAME;
-    ipc_sync_cmd.data.req.sc_req = SC_REQ_AUTHENTICATE;
-
-    // FIXME: string length check to add
-    memcpy(ipc_sync_cmd.data.req.sc_petname, pet_name, pet_name_len);
-
-    printf("requesting Pet name confirmation from PIN\n");
-    do {
-        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
-
-
-    printf("waiting for acknowledge from PIN for Pet name...\n");
-    /* receiving user acknowledge for pet name */
-    size = sizeof(struct sync_command);
-    id = id_pin;
-    sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-
-    if (ipc_sync_cmd.magic != MAGIC_CRYPTO_PIN_RESP ||
-        ipc_sync_cmd.state != SYNC_ACKNOWLEDGE) {
-        printf("[AUTH Token] Pen name has not been acknowledged by the user\n");
-        goto err;
-    }
-
-    printf("[AUTH Token] Pen name acknowledge by the user\n");
-
-    return 0;
-err:
-	return -1;
-}
 
 void smartcard_removal_action(void){
     /* Check if smartcard has been removed, and reboot if yes */
-    if((curr_token_channel.card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(curr_token_channel.card))){
-        SC_smartcard_lost(&(curr_token_channel.card));
+    if((dfu_get_token_channel()->card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(dfu_get_token_channel()->card))){
+        SC_smartcard_lost(&(dfu_get_token_channel()->card));
         sys_reset();
     }	
 }
@@ -461,9 +214,9 @@ int _main(uint32_t task_id)
      *********************************************/
 
     /* Register smartcard removal handler */
-    curr_token_channel.card.type = SMARTCARD_CONTACT;
-    SC_register_user_handler_action(&(curr_token_channel.card), smartcard_removal_action);
-    curr_token_channel.card.type = SMARTCARD_UNKNOWN;
+    dfu_get_token_channel()->card.type = SMARTCARD_CONTACT;
+    SC_register_user_handler_action(&(dfu_get_token_channel()->card), smartcard_removal_action);
+    dfu_get_token_channel()->card.type = SMARTCARD_UNKNOWN;
     
     /* Token callbacks */
     cb_token_callbacks dfu_token_callbacks = {
@@ -486,11 +239,11 @@ int _main(uint32_t task_id)
       { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
     };
 
-    if(!tokenret && dfu_token_exchanges(&curr_token_channel, &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
+    if(!tokenret && dfu_token_exchanges(dfu_get_token_channel(), &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
     {
         goto err;
     }
-#ifdef SMART_DEBUG
+#if SMART_DEBUG
     printf("Decrypted signature public key (size %d):\n", decrypted_sig_pub_key_data_len);
     hexdump(decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len);
 #endif
@@ -521,6 +274,8 @@ int _main(uint32_t task_id)
     uint8_t sig[EC_MAX_SIGLEN];
     uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
 
+    set_task_state(DFUSMART_STATE_IDLE);
+
     while (1) {
         // detect Smartcard extraction using EXTI IRQ
         id = ANY_APP;
@@ -540,17 +295,23 @@ int _main(uint32_t task_id)
 
                 case MAGIC_DFU_HEADER_SEND:
                     {
+                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_HEADER_SEND)) {
+                            goto bad_transition;
+                        }
+
+                        set_task_state(DFUSMART_STATE_HEADER);
                         // A DFU header has been received: get it and parse it
-#ifdef SMART_DEBUG
+#if SMART_DEBUG
                         printf("We have a DFU header IPC, start receiveing\n");
 #endif
                         uint32_t tmp_buff_offset = 0;
                         while(ipc_sync_cmd_data.data_size != 0){
                             if((id != id_crypto) || (ipc_sync_cmd_data.magic != MAGIC_DFU_HEADER_SEND)){
-#ifdef SMART_DEBUG
+#if SMART_DEBUG
                                 printf("Error during DFU header receive ...\n");
-                                goto err;
 #endif
+                                set_task_state(DFUSMART_STATE_ERROR);
+                                goto err;
                             }
                             if(tmp_buff_offset >= sizeof(tmp_buff)){
                                 /* We have filled all our buffer, continue to receive without filling */
@@ -571,10 +332,13 @@ int _main(uint32_t task_id)
                             }
                         }
 
+                        set_task_state(DFUSMART_STATE_AUTH);
+
                         if(dfu_parse_header(tmp_buff, sizeof(tmp_buff), &dfu_header, sig, sizeof(sig))){
-#ifdef SMART_DEBUG
+#if SMART_DEBUG
                             printf("Error: bad header received from USB through crypto!\n");
 #endif
+                            set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_DONE;
                             sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
@@ -582,7 +346,8 @@ int _main(uint32_t task_id)
                             continue;
 
                         }
-#ifdef SMART_DEBUG
+
+#if SMART_DEBUG
                         dfu_print_header(&dfu_header);
 #endif
                         /* now let's ask the user for validation */
@@ -605,26 +370,41 @@ int _main(uint32_t task_id)
                             sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
                             continue;
                         }
+                        if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_VALID) {
+                            /* Pin said it is valid */
+                            printf("Validation from Pin. continuing.\n");
+                        }
                         /* PIN said it is okay, continuing */
 
                         /* Now that we have the header, let's begin our decrypt session */
-                        if(dfu_token_begin_decrypt_session_with_error(&curr_token_channel, tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
-#ifdef SMART_DEBUG
+                        if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+#if SMART_DEBUG
                             printf("Error: dfu_token_derive_key returned an error!");
 #endif
                             while(1){};
                             goto err;
                         }
-                        unsigned int i;
-                        for(i=0; i < 200; i++){
-                            unsigned char derived_key[16];
-                            if(dfu_token_derive_key_with_error(&curr_token_channel, derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+                        unsigned char derived_key[16];
+
+#if SMART_DERIVATION_BECHMARK
+                        for(uint8_t i=0; i < 200; i++){
+                            if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
                                 printf("Error during key derivation ...\n");
                                 while(1){};
                             }
                             //printf("Sleeping ...\n");
                             //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
                         }
+#endif
+                        if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+                            printf("Error during key derivation ...\n");
+                            set_task_state(DFUSMART_STATE_ERROR);
+                            goto err;
+                        }
+
+
+                        /* now we have to inject the session key into the CRYP device */
+                        cryp_init_injector(derived_key, sizeof(derived_key));
 
                         /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
@@ -634,6 +414,7 @@ int _main(uint32_t task_id)
                         ipc_sync_cmd_data.data_size = 1;
                         sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
 
+                        set_task_state(DFUSMART_STATE_DWNLOAD);
 
                         break;
                     }
@@ -642,9 +423,20 @@ int _main(uint32_t task_id)
                 /********* Key injection request *************/
                 case MAGIC_CRYPTO_INJECT_CMD:
                     {
+
+                        if (!is_valid_transition(get_task_state(), MAGIC_CRYPTO_INJECT_CMD)) {
+                            goto bad_transition;
+                        }
+
+                        /* do we have to reinject the key ? only write mode request crypto.
+                         * Each chunk we need to derivate the IV and update it in the CRYP device in
+                         * order to uncypher correctly the next one (using the correct IV).
+                         */
+                        // FIXME To add
                         // A DFU chunk has been received. chunk id is passed
                         // in the received IPC
 
+                        /* acknowledge the IV update to crypto */
                         ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
                         ipc_sync_cmd.state = SYNC_DONE;
 
@@ -666,9 +458,14 @@ int _main(uint32_t task_id)
              * Managing Pin task IPC
              ******************************/
             switch (ipc_sync_cmd_data.magic) {
+
                 /********* set user pin into smartcard *******/
                 case MAGIC_SETTINGS_CMD:
                     {
+
+                        if (!is_valid_transition(get_task_state(), MAGIC_SETTINGS_CMD)) {
+                            goto bad_transition;
+                        }
                         /*
                         if (channel_state != CHAN_UNLOCKED) {
                           printf("channel has not been unlocked. You must authenticate yourself first\n");
@@ -681,7 +478,7 @@ int _main(uint32_t task_id)
                             printf("PIN require a Pet Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_PIN };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+                            if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet pin!!!\n");
                                 continue;
                             }
@@ -692,7 +489,7 @@ int _main(uint32_t task_id)
                             printf("PIN require a User Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_USER_PIN };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+                            if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change user pin!!!\n");
                                 continue;
                             }
@@ -702,7 +499,7 @@ int _main(uint32_t task_id)
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
                             printf("PIN require a Pet Name update\n");
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_NAME };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+                            if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet name!!!\n");
                                 continue;
                             }
@@ -718,6 +515,10 @@ int _main(uint32_t task_id)
                 /********* lock the device (by rebooting) ***/
                 case MAGIC_SETTINGS_LOCK:
                     {
+
+                        if (!is_valid_transition(get_task_state(), MAGIC_SETTINGS_LOCK)) {
+                            goto bad_transition;
+                        }
                         sys_reset();
                         while (1);
                         break;
@@ -729,6 +530,8 @@ int _main(uint32_t task_id)
                     /********* defaulting to none    *************/
                 default:
                     {
+                        printf("unknown request !!!\n");
+                        // FIXME: to be added: goto bad_transition;
                         break;
                     }
             }
@@ -739,7 +542,13 @@ int _main(uint32_t task_id)
         sys_yield();
     }
 
+
     return 0;
+
+bad_transition:
+    printf("invalid transition from state %d, magic %x\n", get_task_state(),
+            ipc_sync_cmd_data.magic);
+    set_task_state(DFUSMART_STATE_ERROR);
 err:
     printf("Oops\n");
     while (1) {
