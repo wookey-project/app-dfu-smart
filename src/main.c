@@ -585,10 +585,10 @@ int _main(uint32_t task_id)
 #ifdef SMART_DEBUG
                         dfu_print_header(&dfu_header);
 #endif
-#if 0 /* FIXME: not operational yet !!!*/
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
                         ipc_sync_cmd_data.state = SYNC_DONE;
+                        /* FIXME: the fields that need to be user-validated are still to be selected */
                         ipc_sync_cmd_data.data.u32[0] = dfu_header.magic;
                         ipc_sync_cmd_data.data.u32[1] = dfu_header.version;
                         ipc_sync_cmd_data.data_size = 2;
@@ -605,7 +605,6 @@ int _main(uint32_t task_id)
                             sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
                             continue;
                         }
-#endif
                         /* PIN said it is okay, continuing */
 
                         /* Now that we have the header, let's begin our decrypt session */
