@@ -180,6 +180,92 @@ err:
     return -1;
 }
 
+/* [RB] NOTE: since sending APDUs during heavily loaded tasks scheduling is challenging, we have to deal with possible
+ * smartcard secure channel loss ... In order to recover from such an issue, we try to renegotiate the secure channel
+ * using saved keys. This is not satisfying from a security perspective: we want to forget/erase such keys asap. However,
+ * from an end user perspective, providing the PINs each time a desynchronization is detected can be very painful.
+ * One should notice that such a recovery system is specifically necessary during DFU since the USB task is on heavy duty
+ * with keep alive requests from the host to answer with timing constraints ...
+ */
+#define DFU_TOKEN_MAX_TRIES 10
+static int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const unsigned char *header, uint32_t header_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
+        unsigned int num_tries;
+        int ret = 0;
+        num_tries = 0;
+	unsigned int remaining_tries = 0;
+        ec_curve_type curve;
+
+	/* Sanity check */
+	if(saved_decrypted_keybag_num < 3){
+		ret = -1;
+		goto err;
+	}
+	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
+		ret = -1;
+		goto err;
+	}
+	curve = channel->curve;
+        while(1){	
+		ret = dfu_token_begin_decrypt_session(channel, header, header_len);
+                num_tries++;
+		if(!ret){
+			return 0;
+		}
+                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
+			ret = -1;
+                        goto err;
+                }
+		/* We try to renegotiate a secure channel */
+		token_zeroize_secure_channel(channel);
+		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
+			ret = -1;
+			goto err;
+		}
+	}
+
+err:
+        return ret;
+}
+
+static int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
+        unsigned int num_tries;
+        int ret = 0;
+        num_tries = 0;
+	unsigned int remaining_tries = 0;
+        ec_curve_type curve;
+
+	/* Sanity check */
+	if(saved_decrypted_keybag_num < 3){
+		ret = -1;
+		goto err;
+	}
+	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
+		ret = -1;
+		goto err;
+	}
+	curve = channel->curve;
+        while(1){	
+		ret = dfu_token_derive_key(channel, derived_key, derived_key_len);
+                num_tries++;
+		if(!ret){
+			return 0;
+		}
+                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
+			ret = -1;
+                        goto err;
+                }
+		/* We try to renegotiate a secure channel */
+		token_zeroize_secure_channel(channel);
+		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
+			ret = -1;
+			goto err;
+		}
+	}
+
+err:
+        return ret;
+}
+
 
 
 int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int pet_name_len)
@@ -390,7 +476,17 @@ int _main(uint32_t task_id)
     /* NB: we get back our decrypted signature public key here */
     unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
     unsigned int decrypted_sig_pub_key_data_len = sizeof(decrypted_sig_pub_key_data);
-    if(!tokenret && dfu_token_exchanges(&curr_token_channel, &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len))
+    /* We save our secure channel mounting keys since we want */
+    unsigned char decrypted_token_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
+    unsigned char decrypted_platform_priv_key_data[EC_STRUCTURED_PRIV_KEY_MAX_EXPORT_SIZE] = { 0 };
+    unsigned char decrypted_platform_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
+    databag saved_decrypted_keybag[] = {
+      { .data = decrypted_token_pub_key_data, .size = sizeof(decrypted_token_pub_key_data) },
+      { .data = decrypted_platform_priv_key_data, .size = sizeof(decrypted_platform_priv_key_data) },
+      { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
+    };
+
+    if(!tokenret && dfu_token_exchanges(&curr_token_channel, &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
     {
         goto err;
     }
@@ -398,14 +494,6 @@ int _main(uint32_t task_id)
     printf("Decrypted signature public key (size %d):\n", decrypted_sig_pub_key_data_len);
     hexdump(decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len);
 #endif
-
-    /* Now that we have received our assets, we can lock the token.
-     * We maintain the secure channel opened for a while, we only lock the
-     * user PIN for now.
-     */
-    if(token_user_pin_lock(&curr_token_channel)){ 
-        goto err;
-    }
 
     printf("cryptography and smartcard initialization done!\n");
 
@@ -518,10 +606,28 @@ int _main(uint32_t task_id)
                             continue;
                         }
 #endif
-
-
                         /* PIN said it is okay, continuing */
 
+                        /* Now that we have the header, let's begin our decrypt session */
+                        if(dfu_token_begin_decrypt_session_with_error(&curr_token_channel, tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+#ifdef SMART_DEBUG
+                            printf("Error: dfu_token_derive_key returned an error!");
+#endif
+                            while(1){};
+                            goto err;
+                        }
+                        unsigned int i;
+                        for(i=0; i < 200; i++){
+                            unsigned char derived_key[16];
+                            if(dfu_token_derive_key_with_error(&curr_token_channel, derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+                                printf("Error during key derivation ...\n");
+                                while(1){};
+                            }
+                            //printf("Sleeping ...\n");
+                            //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
+                        }
+
+                        /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_VALID;
                         ipc_sync_cmd_data.state = SYNC_DONE;
@@ -529,7 +635,7 @@ int _main(uint32_t task_id)
                         ipc_sync_cmd_data.data_size = 1;
                         sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
 
-//                        dfu_token_begin_decrypt_session(&curr_token_channel, tmp_buf, sizeof(dfu_header));
+
                         break;
                     }
 
@@ -576,7 +682,7 @@ int _main(uint32_t task_id)
                             printf("PIN require a Pet Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_PIN };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
+                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet pin!!!\n");
                                 continue;
                             }
@@ -587,7 +693,7 @@ int _main(uint32_t task_id)
                             printf("PIN require a User Pin update\n");
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_USER_PIN };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
+                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change user pin!!!\n");
                                 continue;
                             }
@@ -597,7 +703,7 @@ int _main(uint32_t task_id)
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
                             printf("PIN require a Pet Name update\n");
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_NAME };
-                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0)){
+                            if(dfu_token_unlock_ops_exec(&curr_token_channel, ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet name!!!\n");
                                 continue;
                             }

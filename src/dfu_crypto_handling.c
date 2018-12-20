@@ -35,11 +35,11 @@ int dfu_parse_header(uint8_t *buffer, uint32_t len, dfu_update_header_t *header,
 	}
 	/* Copy the header from the buffer */
 	memcpy(header, buffer, sizeof(dfu_update_header_t));
-    /* FIXME: define arch independent endianess management (to_device(xxx) instead of to_big/to_little */
-    header->siglen    = to_big32(header->siglen);
-    header->chunksize = to_big32(header->chunksize);
-    header->len       = to_big32(header->len);
-    header->magic     = to_big32(header->magic);
+	/* FIXME: define arch independent endianess management (to_device(xxx) instead of to_big/to_little */
+	header->siglen    = to_big32(header->siglen);
+	header->chunksize = to_big32(header->chunksize);
+	header->len       = to_big32(header->len);
+	header->magic     = to_big32(header->magic);
 	/* Get the signature length */
 	if(header->siglen > siglen){
 		/* Not enough room to store the signature */
