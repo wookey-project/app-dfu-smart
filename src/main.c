@@ -22,6 +22,22 @@ uint8_t id_pin = 0;
 
 #define SMART_DERIVATION_BECHMARK 0
 
+
+/* cryptographic data */
+/* NB: we get back our decrypted signature public key here */
+unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
+unsigned int decrypted_sig_pub_key_data_len = sizeof(decrypted_sig_pub_key_data);
+/* We save our secure channel mounting keys since we want */
+unsigned char decrypted_token_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
+unsigned char decrypted_platform_priv_key_data[EC_STRUCTURED_PRIV_KEY_MAX_EXPORT_SIZE] = { 0 };
+unsigned char decrypted_platform_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
+databag saved_decrypted_keybag[] = {
+    { .data = decrypted_token_pub_key_data, .size = sizeof(decrypted_token_pub_key_data) },
+    { .data = decrypted_platform_priv_key_data, .size = sizeof(decrypted_platform_priv_key_data) },
+    { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
+};
+
+
 static void led_on(void)
 {
     /* toggle led ON */
@@ -34,6 +50,25 @@ static void smartcard_removal_action(void){
         SC_smartcard_lost(&(dfu_get_token_channel()->card));
         sys_reset();
     }	
+}
+
+uint8_t smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len) 
+{
+    uint8_t iv[16] = { 0 }; 
+    if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+        printf("Error during key derivation ...\n");
+        set_task_state(DFUSMART_STATE_ERROR);
+        goto err;
+    }
+
+
+    /* now we have to inject the session key into the CRYP device */
+    cryp_init_injector(derived_key, derived_key_len);
+    cryp_init_user(KEY_128, iv, sizeof(iv), AES_CTR, DECRYPT);
+
+    return 0;
+err:
+    return 1;
 }
 
 /*
@@ -193,18 +228,6 @@ int _main(uint32_t task_id)
         .request_pet_name_confirmation = dfu_token_request_pet_name_confirmation
     };
     /* this call generates authentication request to PIN */
-    /* NB: we get back our decrypted signature public key here */
-    unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
-    unsigned int decrypted_sig_pub_key_data_len = sizeof(decrypted_sig_pub_key_data);
-    /* We save our secure channel mounting keys since we want */
-    unsigned char decrypted_token_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
-    unsigned char decrypted_platform_priv_key_data[EC_STRUCTURED_PRIV_KEY_MAX_EXPORT_SIZE] = { 0 };
-    unsigned char decrypted_platform_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
-    databag saved_decrypted_keybag[] = {
-      { .data = decrypted_token_pub_key_data, .size = sizeof(decrypted_token_pub_key_data) },
-      { .data = decrypted_platform_priv_key_data, .size = sizeof(decrypted_platform_priv_key_data) },
-      { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
-    };
 
     if(!tokenret && dfu_token_exchanges(dfu_get_token_channel(), &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
     {
@@ -240,6 +263,7 @@ int _main(uint32_t task_id)
     dfu_update_header_t dfu_header;
     uint8_t sig[EC_MAX_SIGLEN];
     uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
+    unsigned char derived_key[16];
 
     set_task_state(DFUSMART_STATE_IDLE);
 
@@ -350,7 +374,6 @@ int _main(uint32_t task_id)
 #endif
                             goto err;
                         }
-                        unsigned char derived_key[16];
 
 #if SMART_DERIVATION_BECHMARK
                         for(uint8_t i=0; i < 200; i++){
@@ -361,21 +384,12 @@ int _main(uint32_t task_id)
                             //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
                         }
 #endif
-                        if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
-                            printf("Error during key derivation ...\n");
-                            set_task_state(DFUSMART_STATE_ERROR);
-                            goto err;
-                        }
-
-
-                        /* now we have to inject the session key into the CRYP device */
-                        cryp_init_injector(derived_key, sizeof(derived_key));
-
+                        smart_derive_and_inject_key(derived_key, sizeof(derived_key));
                         /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_VALID;
                         ipc_sync_cmd_data.state = SYNC_DONE;
-                        ipc_sync_cmd_data.data.u16[0] = sizeof(dfu_header) + dfu_header.siglen;
+                        ipc_sync_cmd_data.data.u16[0] = dfu_header.chunksize;
                         ipc_sync_cmd_data.data_size = 1;
                         sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
 
@@ -397,6 +411,16 @@ int _main(uint32_t task_id)
                          * Each chunk we need to derivate the IV and update it in the CRYP device in
                          * order to uncypher correctly the next one (using the correct IV).
                          */
+
+                        ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key));
+                        if (ret != 0) {
+                            ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
+                            ipc_sync_cmd.state = SYNC_FAILURE;
+
+                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            set_task_state(DFUSMART_STATE_ERROR);
+                            continue;
+                        }
                         // FIXME To add
                         // A DFU chunk has been received. chunk id is passed
                         // in the received IPC
