@@ -22,8 +22,13 @@ uint8_t id_pin = 0;
 
 #define SMART_DERIVATION_BECHMARK 0
 
+static void led_on(void)
+{
+    /* toggle led ON */
+    sys_cfg(CFG_GPIO_SET, (uint8_t)((('C' - 'A') << 4) + 5), 1);
+}
 
-void smartcard_removal_action(void){
+static void smartcard_removal_action(void){
     /* Check if smartcard has been removed, and reboot if yes */
     if((dfu_get_token_channel()->card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(dfu_get_token_channel()->card))){
         SC_smartcard_lost(&(dfu_get_token_channel()->card));
@@ -109,10 +114,12 @@ int _main(uint32_t task_id)
     ret = sys_init(INIT_DONE);
     printf("sys_init returns %s !\n", strerror(ret));
 
+    /*******************************************
+     * End of init phase, let's start nominal one
+     *******************************************/
 
 #if CONFIG_WOOKEY
-    /* toggle led ON */
-    sys_cfg(CFG_GPIO_SET, (uint8_t)((('C' - 'A') << 4) + 5), 1);
+    led_on();
 #endif
 
     /*******************************************
@@ -161,7 +168,6 @@ int _main(uint32_t task_id)
      * Wait for crypto to ask for key injection
      *********************************************/
 
-    /* First, wait for pin to finish its init phase */
     id = id_crypto;
     size = sizeof(struct sync_command);
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
@@ -338,11 +344,10 @@ int _main(uint32_t task_id)
                         /* PIN said it is okay, continuing */
 
                         /* Now that we have the header, let's begin our decrypt session */
-                        if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+                        if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
                             printf("Error: dfu_token_derive_key returned an error!");
 #endif
-                            while(1){};
                             goto err;
                         }
                         unsigned char derived_key[16];
@@ -351,7 +356,6 @@ int _main(uint32_t task_id)
                         for(uint8_t i=0; i < 200; i++){
                             if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
                                 printf("Error during key derivation ...\n");
-                                while(1){};
                             }
                             //printf("Sleeping ...\n");
                             //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
