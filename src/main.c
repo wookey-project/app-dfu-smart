@@ -20,46 +20,7 @@ uint8_t id_pin = 0;
 /* Crypto helpers for DFU */
 #include "dfu_header.h"
 
-#define SMART_DEBUG 1
 #define SMART_DERIVATION_BECHMARK 0
-
-static volatile t_dfusmart_state task_state = DFUSMART_STATE_INIT;
-
-#if SMART_DEBUG
-static const char *state_tab[] = {
-    "<none>",
-    "DFUSMART_STATE_INIT",
-    "DFUSMART_STATE_IDLE",
-    "DFUSMART_STATE_HEADER",
-    "DFUSMART_STATE_AUTH",
-    "DFUSMART_STATE_DWNLOAD",
-    "DFUSMART_STATE_CHECKSIG",
-    "DFUSMART_STATE_FLASHUPDATE",
-    "DFUSMART_STATE_ERROR",
-};
-#endif
-
-t_dfusmart_state
-get_task_state(void) {
-    return task_state;
-}
-
-void
-set_task_state(t_dfusmart_state state) {
-#if SMART_DEBUG
-    printf("state: %s => %s\n", state_tab[task_state], state_tab[state]);
-#endif
-    task_state = state;
-}
-
-bool is_valid_transition(t_dfusmart_state state, uint8_t magic)
-{
-    /* FIXME: need automaton tab to be written */
-    state = state;
-    magic = magic;
-    return true;
-}
-
 
 
 void smartcard_removal_action(void){
