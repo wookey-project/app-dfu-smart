@@ -217,7 +217,7 @@ err:
         return ret;
 }
 
-int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
+int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, uint16_t num_chunk, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
         unsigned int num_tries;
         int ret = 0;
         num_tries = 0;
@@ -235,7 +235,7 @@ int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *deriv
 	}
 	curve = channel->curve;
         while(1){	
-		ret = dfu_token_derive_key(channel, derived_key, derived_key_len);
+		ret = dfu_token_derive_key(channel, derived_key, derived_key_len, num_chunk);
                 num_tries++;
 		if(!ret){
 			return 0;

@@ -17,7 +17,7 @@ int dfu_token_request_pet_name(char *pet_name, unsigned int *pet_name_len);
 
 int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const unsigned char *header, uint32_t header_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num);
 
-int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num);
+int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, uint16_t num_chunk, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num);
 
 int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int pet_name_len);
 

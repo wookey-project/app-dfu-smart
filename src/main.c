@@ -37,7 +37,6 @@ databag saved_decrypted_keybag[] = {
     { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
 };
 
-
 static void led_on(void)
 {
     /* toggle led ON */
@@ -52,18 +51,23 @@ static void smartcard_removal_action(void){
     }	
 }
 
-uint8_t smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len) 
+/* Current index of chunk treated */
+static volatile uint16_t num_chunk = 0;
+static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk) 
 {
     uint8_t iv[16] = { 0 }; 
-    if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+    if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
         printf("Error during key derivation ...\n");
         set_task_state(DFUSMART_STATE_ERROR);
         goto err;
     }
-
-
+//printf("===>DERIVED KEY IS:\n");
+//hexdump(derived_key, derived_key_len);
+    if(derived_key_len != 16){
+        goto err;
+    }
     /* now we have to inject the session key into the CRYP device */
-    cryp_init_injector(derived_key, derived_key_len);
+    cryp_init_injector(derived_key, KEY_128);
     cryp_init_user(KEY_128, iv, sizeof(iv), AES_CTR, DECRYPT);
 
     return 0;
@@ -341,6 +345,7 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                         dfu_print_header(&dfu_header);
 #endif
+#if 0
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
                         ipc_sync_cmd_data.state = SYNC_DONE;
@@ -366,7 +371,7 @@ int _main(uint32_t task_id)
                             printf("Validation from Pin. continuing.\n");
                         }
                         /* PIN said it is okay, continuing */
-
+#endif
                         /* Now that we have the header, let's begin our decrypt session */
                         if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
@@ -374,17 +379,19 @@ int _main(uint32_t task_id)
 #endif
                             goto err;
                         }
+			num_chunk = 0;
 
 #if SMART_DERIVATION_BECHMARK
                         for(uint8_t i=0; i < 200; i++){
-                            if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+                            if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), i, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
                                 printf("Error during key derivation ...\n");
                             }
                             //printf("Sleeping ...\n");
                             //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
                         }
 #endif
-                        smart_derive_and_inject_key(derived_key, sizeof(derived_key));
+                        smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
+			num_chunk++;
                         /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_VALID;
@@ -412,8 +419,8 @@ int _main(uint32_t task_id)
                          * order to uncypher correctly the next one (using the correct IV).
                          */
 
-                        ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key));
-                        if (ret != 0) {
+                        ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
+                        if (ret) {
                             ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
                             ipc_sync_cmd.state = SYNC_FAILURE;
 
@@ -421,6 +428,7 @@ int _main(uint32_t task_id)
                             set_task_state(DFUSMART_STATE_ERROR);
                             continue;
                         }
+			num_chunk++;
                         // FIXME To add
                         // A DFU chunk has been received. chunk id is passed
                         // in the received IPC
