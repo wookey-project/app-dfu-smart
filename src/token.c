@@ -217,43 +217,46 @@ err:
         return ret;
 }
 
-int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, uint16_t num_chunk, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
-        unsigned int num_tries;
-        int ret = 0;
-        num_tries = 0;
-	unsigned int remaining_tries = 0;
-        ec_curve_type curve;
 
-	/* Sanity check */
-	if(saved_decrypted_keybag_num < 3){
-		ret = -1;
-		goto err;
-	}
-	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
-		ret = -1;
-		goto err;
-	}
-	curve = channel->curve;
-        while(1){	
-		ret = dfu_token_derive_key(channel, derived_key, derived_key_len, num_chunk);
-                num_tries++;
-		if(!ret){
-			return 0;
-		}
-                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
-			ret = -1;
-                        goto err;
-                }
-		/* We try to renegotiate a secure channel */
-		token_zeroize_secure_channel(channel);
-		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
-			ret = -1;
-			goto err;
-		}
-	}
+int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *derived_key, uint32_t derived_key_len, uint16_t num_chunk, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num)
+{
+    unsigned int num_tries;
+    int ret = 0;
+    num_tries = 0;
+    unsigned int remaining_tries = 0;
+    ec_curve_type curve;
+
+    /* Sanity check */
+    if(saved_decrypted_keybag_num < 3){
+        ret = -1;
+        goto err;
+    }
+    if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
+        ret = -1;
+        goto err;
+    }
+    curve = channel->curve;
+    while(1){	
+        ret = dfu_token_derive_key(channel, derived_key, derived_key_len, num_chunk);
+        num_tries++;
+        if(!ret){
+            return 0;
+        }
+        if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
+            ret = -1;
+            goto err;
+        }
+        /* We try to renegotiate a secure channel */
+        token_zeroize_secure_channel(channel);
+        if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries))
+        {
+            ret = -1;
+            goto err;
+        }
+    }
 
 err:
-        return ret;
+    return ret;
 }
 
 
