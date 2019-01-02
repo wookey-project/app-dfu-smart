@@ -244,6 +244,9 @@ int _main(uint32_t task_id)
 
     printf("cryptography and smartcard initialization done!\n");
 
+    /** Update the error recovery timeout of the channel to 300 milliseconds **/
+     dfu_get_token_channel()->error_recovery_sleep = 300;
+
     /***********************************************
      * Acknowledge key injection to Crypto
      * and send key hash
