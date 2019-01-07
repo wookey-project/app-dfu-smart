@@ -386,9 +386,10 @@ int _main(uint32_t task_id)
                             printf("invalid file: trying to erase current bank \n");
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
-                            ipc_sync_cmd.state = SYNC_DONE;
+                            ipc_sync_cmd.state = SYNC_BADFILE;
                             sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
-
+                            /* returning back to IDLE */
+                            set_task_state(DFUSMART_STATE_IDLE);
                             continue;
                         }
 
