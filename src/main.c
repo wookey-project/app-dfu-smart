@@ -14,6 +14,7 @@
 #include "autoconf.h"
 #include "main.h"
 #include "token.h"
+#include "libfw.h"
 
 uint8_t id_pin = 0;
 
@@ -375,6 +376,22 @@ int _main(uint32_t task_id)
                         }
                         /* PIN said it is okay, continuing */
 #endif
+                        /* before starting cryptographic session, let's check
+                         * that this is the good file (i.e. flip for flop mode
+                         * and flop for flip mode */
+
+
+                        if ((is_in_flip_mode() && dfu_header.type == FLIP) ||
+                            (is_in_flop_mode() && dfu_header.type == FLOP)   ) {
+                            printf("invalid file: trying to erase current bank \n");
+                            set_task_state(DFUSMART_STATE_ERROR);
+                            ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
+                            ipc_sync_cmd.state = SYNC_DONE;
+                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+
+                            continue;
+                        }
+
                         /* Now that we have the header, let's begin our decrypt session */
                         if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
