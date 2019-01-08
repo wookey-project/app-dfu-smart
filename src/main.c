@@ -57,6 +57,7 @@ static void smartcard_removal_action(void){
     if((dfu_get_token_channel()->card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(dfu_get_token_channel()->card))){
         SC_smartcard_lost(&(dfu_get_token_channel()->card));
         sys_reset();
+        while(1);
     }
 }
 
@@ -65,22 +66,23 @@ static volatile uint16_t num_chunk = 0;
 static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk)
 {
     uint8_t iv[16] = { 0 };
+    if(derived_key_len != 16){
+        goto err;
+    }
     if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
         printf("Error during key derivation ...\n");
         set_task_state(DFUSMART_STATE_ERROR);
         goto err;
     }
-//printf("===>DERIVED KEY IS:\n");
-//hexdump(derived_key, derived_key_len);
-    if(derived_key_len != 16){
-        goto err;
-    }
-    /* now we have to inject the session key into the CRYP device */
+    /* Now we have to inject the session key into the CRYP device */
     cryp_init_injector(derived_key, KEY_128);
     cryp_init_user(KEY_128, iv, sizeof(iv), AES_CTR, DECRYPT);
+    /* We can erase the key now that it has been injected */
+    memset(derived_key, 0, derived_key_len);
 
     return 0;
 err:
+    memset(derived_key, 0, derived_key_len);
     return 1;
 }
 
@@ -214,6 +216,11 @@ int _main(uint32_t task_id)
         printf("crypto has acknowledge end_of_init, continuing\n");
     }
 
+    /* Register smartcard removal handler */
+    dfu_get_token_channel()->card.type = SMARTCARD_CONTACT;
+    SC_register_user_handler_action(&(dfu_get_token_channel()->card), smartcard_removal_action);
+    dfu_get_token_channel()->card.type = SMARTCARD_UNKNOWN;
+
     /*********************************************
      * Wait for crypto to ask for key injection
      *********************************************/
@@ -230,12 +237,7 @@ int _main(uint32_t task_id)
      * DFU token communication
      *********************************************/
 
-    /* Register smartcard removal handler */
-    dfu_get_token_channel()->card.type = SMARTCARD_CONTACT;
-    SC_register_user_handler_action(&(dfu_get_token_channel()->card), smartcard_removal_action);
-    dfu_get_token_channel()->card.type = SMARTCARD_UNKNOWN;
-
-    /* Token callbacks */
+   /* Token callbacks */
     cb_token_callbacks dfu_token_callbacks = {
         .request_pin                   = dfu_token_request_pin,
         .acknowledge_pin               = dfu_token_acknowledge_pin,
@@ -248,10 +250,6 @@ int _main(uint32_t task_id)
     {
         goto err;
     }
-#if SMART_DEBUG
-    printf("Decrypted signature public key (size %d):\n", decrypted_sig_pub_key_data_len);
-    hexdump(decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len);
-#endif
 
     printf("cryptography and smartcard initialization done!\n");
 
@@ -406,22 +404,19 @@ int _main(uint32_t task_id)
                         /* Now that we have the header, let's begin our decrypt session */
                         if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
-                            printf("Error: dfu_token_derive_key returned an error!");
+                            printf("Error: dfu_token_begin_decrypt_session returned an error!");
 #endif
                             goto err;
                         }
 			num_chunk = 0;
 
-#if SMART_DERIVATION_BECHMARK
-                        for(uint8_t i=0; i < 200; i++){
-                            if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, sizeof(derived_key), i, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
-                                printf("Error during key derivation ...\n");
-                            }
-                            //printf("Sleeping ...\n");
-                            //sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
-                        }
+                        ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
+                        if (ret) {
+#if SMART_DEBUG
+                            printf("Error: dfu_token_derive_key returned an error!");
 #endif
-                        smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
+                            goto err;
+                        }
 			num_chunk++;
                         /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
@@ -589,8 +584,7 @@ bad_transition:
     set_task_state(DFUSMART_STATE_ERROR);
 err:
     printf("Oops\n");
-    while (1) {
-        sys_reset();
-    }
+    sys_reset();
+    while(1);
     return 0;
 }
