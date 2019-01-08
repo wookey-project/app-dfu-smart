@@ -71,7 +71,7 @@ static const struct {
     /* Download phase, the firmware is downloaded, Smart manages the IV round */
     { DFUSMART_STATE_DWNLOAD, {
                                  {MAGIC_CRYPTO_INJECT_CMD,DFUSMART_STATE_DWNLOAD},
-                                 {MAGIC_DFU_DWNLOAD_FINISHED,DFUSMART_STATE_CHECKSIG},
+                                 {MAGIC_DFU_WRITE_FINISHED,DFUSMART_STATE_CHECKSIG},
                                  {0xff,0xff},
                                  {0xff,0xff},
                                  {0xff,0xff}

@@ -462,6 +462,16 @@ int _main(uint32_t task_id)
                         break;
                     }
 
+                case MAGIC_DFU_WRITE_FINISHED:
+                    {
+
+                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_WRITE_FINISHED)) {
+                            goto bad_transition;
+                        }
+                        set_task_state(DFUSMART_STATE_CHECKSIG);
+                        printf("checking signature of firmware\n");
+                        break;
+                    }
                     /********* defaulting to none    *************/
                 default:
                     {
