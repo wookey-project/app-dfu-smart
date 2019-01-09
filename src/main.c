@@ -15,6 +15,7 @@
 #include "main.h"
 #include "token.h"
 #include "libfw.h"
+#include "hash.h"
 
 uint8_t id_pin = 0;
 
@@ -23,6 +24,13 @@ uint8_t id_pin = 0;
 
 #define SMART_DERIVATION_BECHMARK 0
 
+
+static volatile bool hash_dma_done = 0;
+
+void hash_dma_cb(uint32_t status __attribute__((unused)))
+{
+    hash_dma_done = 1;
+}
 
 /* cryptographic data */
 /* NB: we get back our decrypted signature public key here */
@@ -49,14 +57,14 @@ static void smartcard_removal_action(void){
     if((dfu_get_token_channel()->card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(dfu_get_token_channel()->card))){
         SC_smartcard_lost(&(dfu_get_token_channel()->card));
         sys_reset();
-    }	
+    }
 }
 
 /* Current index of chunk treated */
 static volatile uint16_t num_chunk = 0;
-static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk) 
+static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk)
 {
-    uint8_t iv[16] = { 0 }; 
+    uint8_t iv[16] = { 0 };
     if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
         printf("Error during key derivation ...\n");
         set_task_state(DFUSMART_STATE_ERROR);
@@ -114,6 +122,7 @@ int _main(uint32_t task_id)
 
 
     cryp_early_init(false, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
+    hash_early_init(HASh_TRANS_DMA, HASH_MAP_THROUGH_CRYP, HASH_POLL_MODE);
 
 #if CONFIG_WOOKEY
     // led info
@@ -161,6 +170,7 @@ int _main(uint32_t task_id)
 #if CONFIG_WOOKEY
     led_on();
 #endif
+    hash_init(0, hash_dma_cb, HASH_SHA1);
 
     /*******************************************
      * let's synchronize with other tasks
@@ -203,7 +213,7 @@ int _main(uint32_t task_id)
         && ipc_sync_cmd.state == SYNC_ACKNOWLEDGE) {
         printf("crypto has acknowledge end_of_init, continuing\n");
     }
- 
+
     /*********************************************
      * Wait for crypto to ask for key injection
      *********************************************/
@@ -224,7 +234,7 @@ int _main(uint32_t task_id)
     dfu_get_token_channel()->card.type = SMARTCARD_CONTACT;
     SC_register_user_handler_action(&(dfu_get_token_channel()->card), smartcard_removal_action);
     dfu_get_token_channel()->card.type = SMARTCARD_UNKNOWN;
-    
+
     /* Token callbacks */
     cb_token_callbacks dfu_token_callbacks = {
         .request_pin                   = dfu_token_request_pin,
@@ -284,7 +294,7 @@ int _main(uint32_t task_id)
         if (ret != SYS_E_DONE) {
             continue;
         }
-	/***************************************************************************/ 
+	/***************************************************************************/
         if (id == id_crypto) {
             /*******************************
              * Managing Crypto task IPC
@@ -480,7 +490,7 @@ int _main(uint32_t task_id)
             }
         }
 
-	/***************************************************************************/ 
+	/***************************************************************************/
         if (id == id_pin) {
             /*******************************
              * Managing Pin task IPC
