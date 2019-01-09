@@ -123,8 +123,8 @@ int _main(uint32_t task_id)
     printf("pin is task %x !\n", id_pin);
 
 
-    cryp_early_init(false, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
-    hash_early_init(HASh_TRANS_DMA, HASH_MAP_THROUGH_CRYP, HASH_POLL_MODE);
+    cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
+    hash_early_init(HASh_TRANS_DMA, HASH_MAP_VOLUNTARY, HASH_POLL_MODE);
 
 #if CONFIG_WOOKEY
     // led info
@@ -172,7 +172,8 @@ int _main(uint32_t task_id)
 #if CONFIG_WOOKEY
     led_on();
 #endif
-    hash_init(0, hash_dma_cb, HASH_SHA1);
+    hash_init(0, hash_dma_cb, HASH_SHA256);
+    hash_unmap();
 
     /*******************************************
      * let's synchronize with other tasks
@@ -475,6 +476,13 @@ int _main(uint32_t task_id)
                         }
                         set_task_state(DFUSMART_STATE_CHECKSIG);
                         printf("checking signature of firmware\n");
+                        if (is_in_flip_mode()) {
+                            hash_request(HASH_REQ_LAST, 0x08120000, 0xe0000);
+                        } else {
+                            hash_request(HASH_REQ_LAST, 0x08020000, 0xe0000);
+                        }
+                        while (hash_dma_done == 0) {};
+                        printf("hash done.\n");
                         break;
                     }
                     /********* defaulting to none    *************/
