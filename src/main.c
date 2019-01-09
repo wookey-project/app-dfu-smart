@@ -15,7 +15,7 @@
 #include "main.h"
 #include "token.h"
 #include "libfw.h"
-#include "hash.h"
+#include "libhash.h"
 
 uint8_t id_pin = 0;
 
