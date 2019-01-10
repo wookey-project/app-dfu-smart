@@ -308,6 +308,11 @@ int _main(uint32_t task_id)
                         }
 
                         set_task_state(DFUSMART_STATE_HEADER);
+                        ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_STARTED;
+                        ipc_sync_cmd.state = SYNC_DONE;
+                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+
+                        /* we send to pin the information that the DFU as started */
                         // A DFU header has been received: get it and parse it
 #if SMART_DEBUG
                         printf("We have a DFU header IPC, start receiveing\n");
@@ -483,6 +488,10 @@ int _main(uint32_t task_id)
                         }
                         while (hash_dma_done == 0) {};
                         printf("hash done.\n");
+                        ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
+                        ipc_sync_cmd.state = SYNC_DONE;
+                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+
                         break;
                     }
                     /********* defaulting to none    *************/
