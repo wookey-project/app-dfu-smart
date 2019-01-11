@@ -366,7 +366,7 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                         firmware_print_header(&dfu_header);
 #endif
-#if 0
+#if 1
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
                         ipc_sync_cmd_data.state = SYNC_DONE;
