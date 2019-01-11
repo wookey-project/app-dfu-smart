@@ -72,7 +72,7 @@ static const struct {
     { DFUSMART_STATE_DWNLOAD, {
                                  {MAGIC_CRYPTO_INJECT_CMD,DFUSMART_STATE_DWNLOAD},
                                  {MAGIC_DFU_WRITE_FINISHED,DFUSMART_STATE_CHECKSIG},
-                                 {0xff,0xff},
+                                 {MAGIC_DFU_HEADER_SEND, DFUSMART_STATE_HEADER},
                                  {0xff,0xff},
                                  {0xff,0xff}
                              }

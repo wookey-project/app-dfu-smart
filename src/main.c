@@ -19,11 +19,7 @@
 
 uint8_t id_pin = 0;
 
-/* Crypto helpers for DFU */
-#include "dfu_header.h"
-
-#define SMART_DERIVATION_BECHMARK 0
-
+#define SMART_DEBUG 1
 
 static volatile bool hash_dma_done = 0;
 
@@ -277,7 +273,7 @@ int _main(uint32_t task_id)
      * Smart main event loop
      *******************************************/
     /* Variables holding the header and the signature of the firmware */
-    dfu_update_header_t dfu_header;
+    firmware_header_t dfu_header;
     uint8_t sig[EC_MAX_SIGLEN];
     uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
     unsigned char derived_key[16];
@@ -315,7 +311,7 @@ int _main(uint32_t task_id)
                         /* we send to pin the information that the DFU as started */
                         // A DFU header has been received: get it and parse it
 #if SMART_DEBUG
-                        printf("We have a DFU header IPC, start receiveing\n");
+                        printf("We have a DFU header IPC, start receiving\n");
 #endif
                         uint32_t tmp_buff_offset = 0;
                         while(ipc_sync_cmd_data.data_size != 0){
@@ -347,7 +343,7 @@ int _main(uint32_t task_id)
 
                         set_task_state(DFUSMART_STATE_AUTH);
 
-                        if(dfu_parse_header(tmp_buff, sizeof(tmp_buff), &dfu_header, sig, sizeof(sig))){
+                        if(firmware_parse_header(tmp_buff, sizeof(tmp_buff), sizeof(sig), &dfu_header, sig)){
 #if SMART_DEBUG
                             printf("Error: bad header received from USB through crypto!\n");
 #endif
@@ -361,7 +357,7 @@ int _main(uint32_t task_id)
                         }
 
 #if SMART_DEBUG
-                        dfu_print_header(&dfu_header);
+                        firmware_print_header(&dfu_header);
 #endif
 #if 0
                         /* now let's ask the user for validation */
@@ -395,8 +391,8 @@ int _main(uint32_t task_id)
                          * and flop for flip mode */
 
 
-                        if ((is_in_flip_mode() && dfu_header.type == FLIP) ||
-                            (is_in_flop_mode() && dfu_header.type == FLOP)   ) {
+                        if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
+                            (is_in_flop_mode() && (firmware_is_partition_flop(&dfu_header) == true))  ) {
                             printf("invalid file: trying to erase current bank \n");
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
@@ -475,7 +471,7 @@ int _main(uint32_t task_id)
 
                 case MAGIC_DFU_WRITE_FINISHED:
                     {
-
+			/* When we enter the CHECKSIG state, nothing should make us change our state except an error */
                         if (!is_valid_transition(get_task_state(), MAGIC_DFU_WRITE_FINISHED)) {
                             goto bad_transition;
                         }
@@ -487,7 +483,9 @@ int _main(uint32_t task_id)
                             hash_request(HASH_REQ_LAST, 0x08020000, 0xe0000);
                         }
                         while (hash_dma_done == 0) {};
-                        printf("hash done.\n");
+                        printf("hash done, the hash value is:\n");
+			/* FIXME: this is ugly, we must have helpers in the hash layer */
+			hexdump((unsigned char*)(0x50060400+0x310), 32);
                         ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
                         ipc_sync_cmd.state = SYNC_DONE;
                         sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
