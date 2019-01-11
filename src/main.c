@@ -59,14 +59,21 @@ static void smartcard_removal_action(void){
 
 /* Current index of chunk treated */
 static volatile uint16_t num_chunk = 0;
+/* Maximum number of chunks we have to handle */
+static volatile uint16_t max_num_chunk = 0;
 static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk)
 {
     uint8_t iv[16] = { 0 };
     if(derived_key_len != 16){
         goto err;
     }
+    /* Sanity check: we should not overflow the maximum chunk number */
+    if(num_chunk > max_num_chunk){
+        printf("Error during key derivation ... asked chunk number %d exceeds max chunk number %d\n", num_chunk, max_num_chunk); 
+        goto err;
+    }
     if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
-        printf("Error during key derivation ...\n");
+        printf("Error during key derivation ... dfu_token_derive_key_with_error\n");
         set_task_state(DFUSMART_STATE_ERROR);
         goto err;
     }
@@ -402,7 +409,8 @@ int _main(uint32_t task_id)
                             set_task_state(DFUSMART_STATE_IDLE);
                             continue;
                         }
-
+			/* Compute the number of crypto chunks we have from the header */
+			max_num_chunk = dfu_header.len / dfu_header.chunksize;
                         /* Now that we have the header, let's begin our decrypt session */
                         if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
