@@ -69,7 +69,7 @@ static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_ke
     }
     /* Sanity check: we should not overflow the maximum chunk number */
     if(num_chunk > max_num_chunk){
-        printf("Error during key derivation ... asked chunk number %d exceeds max chunk number %d\n", num_chunk, max_num_chunk); 
+        printf("Error during key derivation ... asked chunk number %d exceeds max chunk number %d\n", num_chunk, max_num_chunk);
         goto err;
     }
     if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
@@ -493,7 +493,9 @@ int _main(uint32_t task_id)
                         while (hash_dma_done == 0) {};
                         printf("hash done, the hash value is:\n");
 			/* FIXME: this is ugly, we must have helpers in the hash layer */
+#if 0
 			hexdump((unsigned char*)(0x50060400+0x310), 32);
+#endif
                         ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
                         ipc_sync_cmd.state = SYNC_DONE;
                         sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
