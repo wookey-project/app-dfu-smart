@@ -16,17 +16,13 @@
 #include "token.h"
 #include "libfw.h"
 #include "libhash.h"
+#include "handlers.h"
+
+
 
 uint8_t id_pin = 0;
 
 #define SMART_DEBUG 1
-
-static volatile bool hash_dma_done = 0;
-
-void hash_dma_cb(uint32_t status __attribute__((unused)))
-{
-    hash_dma_done = 1;
-}
 
 /* cryptographic data */
 /* NB: we get back our decrypted signature public key here */
@@ -63,7 +59,6 @@ static volatile uint16_t num_chunk = 0;
 static volatile uint16_t max_num_chunk = 0;
 static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_key_len, uint16_t num_chunk)
 {
-    uint8_t iv[16] = { 0 };
     if(derived_key_len != 16){
         goto err;
     }
@@ -79,7 +74,6 @@ static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_ke
     }
     /* Now we have to inject the session key into the CRYP device */
     cryp_init_injector(derived_key, KEY_128);
-    cryp_init_user(KEY_128, iv, sizeof(iv), AES_CTR, DECRYPT);
     /* We can erase the key now that it has been injected */
     memset(derived_key, 0, derived_key_len);
 
@@ -88,6 +82,12 @@ err:
     memset(derived_key, 0, derived_key_len);
     return 1;
 }
+
+const ec_str_params *the_curve_const_parameters;
+ec_params curve_params;
+struct ec_verify_context verif_ctx;
+ec_pub_key sig_pub_key;
+
 
 /*
  * We use the local -fno-stack-protector flag for main because
@@ -175,8 +175,9 @@ int _main(uint32_t task_id)
 #if CONFIG_WOOKEY
     led_on();
 #endif
-    hash_init(0, hash_dma_cb, HASH_SHA256);
-    hash_unmap();
+    if(hash_unmap()){
+         goto err;
+    }
 
     /*******************************************
      * let's synchronize with other tasks
@@ -281,8 +282,9 @@ int _main(uint32_t task_id)
      *******************************************/
     /* Variables holding the header and the signature of the firmware */
     firmware_header_t dfu_header;
-    uint8_t sig[EC_MAX_SIGLEN];
-    uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
+    uint8_t firmware_sig[EC_MAX_SIGLEN];
+    /* NOTE: alignment due to DMA */
+    __attribute__((aligned(4))) uint8_t tmp_buff[sizeof(dfu_header)+EC_MAX_SIGLEN];
     unsigned char derived_key[16];
 
     set_task_state(DFUSMART_STATE_IDLE);
@@ -350,7 +352,7 @@ int _main(uint32_t task_id)
 
                         set_task_state(DFUSMART_STATE_AUTH);
 
-                        if(firmware_parse_header(tmp_buff, sizeof(tmp_buff), sizeof(sig), &dfu_header, sig)){
+                        if(firmware_parse_header(tmp_buff, sizeof(tmp_buff), sizeof(firmware_sig), &dfu_header, firmware_sig)){
 #if SMART_DEBUG
                             printf("Error: bad header received from USB through crypto!\n");
 #endif
@@ -416,8 +418,8 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                             printf("Error: dfu_token_begin_decrypt_session returned an error!");
 #endif
-                            goto err;
-                        }
+		    goto err;
+		}
 			num_chunk = 0;
 
                         ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
@@ -451,8 +453,7 @@ int _main(uint32_t task_id)
                         }
 
                         /* do we have to reinject the key ? only write mode request crypto.
-                         * Each chunk we need to derivate the IV and update it in the CRYP device in
-                         * order to uncypher correctly the next one (using the correct IV).
+                         * Each chunk we need to derivate the key and update it in the CRYP device.
                          */
 
                         ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
@@ -479,23 +480,93 @@ int _main(uint32_t task_id)
 
                 case MAGIC_DFU_WRITE_FINISHED:
                     {
+			if(cryp_unmap()){
+				goto err;
+			}
+			if(hash_map()){
+				goto err;
+			}
 			/* When we enter the CHECKSIG state, nothing should make us change our state except an error */
                         if (!is_valid_transition(get_task_state(), MAGIC_DFU_WRITE_FINISHED)) {
                             goto bad_transition;
                         }
                         set_task_state(DFUSMART_STATE_CHECKSIG);
                         printf("checking signature of firmware\n");
+			/* FIXME: to be moved to the lib firmware for more readability */
+    			hash_init(hash_eodigest_cb, hash_dma_cb, HASH_SHA256);
+			/* Begin to hash the header */
+			if(firmware_header_to_raw(&dfu_header, tmp_buff, sizeof(tmp_buff))){
+				goto err;
+			}
+                        status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
+                        status_reg.dma_done = false;
+			/* Sanity check */
+			if(sizeof(dfu_header) < (FW_IV_LEN+FW_HMAC_LEN)){
+				goto err;
+			}
+                        hash_request(HASH_REQ_IN_PROGRESS, (uint32_t)&tmp_buff, sizeof(dfu_header)-FW_IV_LEN-FW_HMAC_LEN);
+                        while (status_reg.dma_done == false){
+                                bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
+				if(dma_error == true){
+					/* We had a DMA error ... Get out */
+					goto err;
+				}
+			}
+                        status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
+                        status_reg.dma_done = false;
                         if (is_in_flip_mode()) {
-                            hash_request(HASH_REQ_LAST, 0x08120000, 0xe0000);
-                        } else {
-                            hash_request(HASH_REQ_LAST, 0x08020000, 0xe0000);
+                            hash_request(HASH_REQ_LAST, 0x08120000, dfu_header.len);
+                        } else if (is_in_flop_mode()){
+                            hash_request(HASH_REQ_LAST, 0x08020000, dfu_header.len);
                         }
-                        while (hash_dma_done == 0) {};
+			else{
+				goto err;
+			}
+                        while (status_reg.dma_done == false){
+                                bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
+				if(dma_error == true){
+					/* We had a DMA error ... Get out */
+					goto err;
+				}
+			}
+			uint8_t digest[32];
+			if(hash_get_digest(digest, sizeof(digest), HASH_SHA256)){
+				goto err;
+			}
                         printf("hash done, the hash value is:\n");
-			/* FIXME: this is ugly, we must have helpers in the hash layer */
-#if 0
-			hexdump((unsigned char*)(0x50060400+0x310), 32);
-#endif
+			hexdump(digest, 32);
+			uint8_t siglen;
+			/* Now check the signature */
+        		/* Map the curve parameters to our libecc internal representation */
+		        the_curve_const_parameters = ec_get_curve_params_by_type(dfu_get_token_channel()->curve);
+		        import_params(&curve_params, the_curve_const_parameters);
+		        if(ec_get_sig_len(&curve_params, ECDSA, SHA256, &siglen)){
+				printf("Error: ec_get_sig_len error\n");
+                		goto err;
+        		}
+			if(dfu_header.siglen != siglen){
+				/* Sanity check on the signature length we got from the header, and the one we compute */
+				printf("Error: dfu_header.siglen (%d) != siglen (%d)\n", dfu_header.siglen, siglen);
+				goto err;
+			}
+			if(ec_structured_pub_key_import_from_buf(&sig_pub_key, &curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
+				printf("Error: ec_structured_pub_key_import_from_buf\n");
+				goto err;
+			}
+			/* Verify the signature */
+			if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+				printf("Error: ec_verify_init\n");
+				goto err;
+			}
+			if(ec_verify_update(&verif_ctx, digest, sizeof(digest))){
+				printf("Error: ec_verify_update\n");
+				goto err;
+			}
+			if(ec_verify_finalize(&verif_ctx)){
+				printf("Error: ec_verify_finalize, signature not OK\n");
+				goto err;
+			}
+			printf("Firmware signature is OK!\n");
                         ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
                         ipc_sync_cmd.state = SYNC_DONE;
                         sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
