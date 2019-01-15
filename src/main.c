@@ -411,6 +411,18 @@ int _main(uint32_t task_id)
                             set_task_state(DFUSMART_STATE_IDLE);
                             continue;
                         }
+			/* Sanity check on the size */
+                        if ((is_in_flip_mode() && (dfu_header.len > firmware_get_flop_size())) ||
+                            (is_in_flop_mode() && (dfu_header.len > firmware_get_flip_size()))  ) {
+                            printf("invalid size %d from header overflows partition size\n");
+                            set_task_state(DFUSMART_STATE_ERROR);
+                            ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
+                            ipc_sync_cmd.state = SYNC_BADFILE;
+                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            /* returning back to IDLE */
+                            set_task_state(DFUSMART_STATE_IDLE);
+                            continue;
+			}
 			/* Compute the number of crypto chunks we have from the header */
 			max_num_chunk = dfu_header.len / dfu_header.chunksize;
                         /* Now that we have the header, let's begin our decrypt session */
@@ -418,8 +430,8 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                             printf("Error: dfu_token_begin_decrypt_session returned an error!");
 #endif
-		    goto err;
-		}
+		    	    goto err;
+			}
 			num_chunk = 0;
 
                         ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
@@ -515,9 +527,9 @@ int _main(uint32_t task_id)
                         status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
                         status_reg.dma_done = false;
                         if (is_in_flip_mode()) {
-                            hash_request(HASH_REQ_LAST, 0x08120000, dfu_header.len);
+                            hash_request(HASH_REQ_LAST, firmware_get_flop_base_addr(), dfu_header.len);
                         } else if (is_in_flop_mode()){
-                            hash_request(HASH_REQ_LAST, 0x08020000, dfu_header.len);
+                            hash_request(HASH_REQ_LAST, firmware_get_flip_base_addr(), dfu_header.len);
                         }
 			else{
 				goto err;
