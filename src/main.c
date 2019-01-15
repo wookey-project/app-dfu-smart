@@ -507,24 +507,24 @@ int _main(uint32_t task_id)
 			/* FIXME: to be moved to the lib firmware for more readability */
     			hash_init(hash_eodigest_cb, hash_dma_cb, HASH_SHA256);
 			/* Begin to hash the header */
-			if(firmware_header_to_raw(&dfu_header, tmp_buff, sizeof(tmp_buff))){
-				goto err;
-			}
-                        status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
-                        status_reg.dma_done = false;
-			/* Sanity check */
-			if(sizeof(dfu_header) < (FW_IV_LEN+FW_HMAC_LEN)){
-				goto err;
-			}
-                        hash_request(HASH_REQ_IN_PROGRESS, (uint32_t)&tmp_buff, sizeof(dfu_header)-FW_IV_LEN-FW_HMAC_LEN);
-                        while (status_reg.dma_done == false){
-                                bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
-				if(dma_error == true){
-					/* We had a DMA error ... Get out */
-					goto err;
-				}
-			}
-                        status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
+                if(firmware_header_to_raw(&dfu_header, tmp_buff, sizeof(tmp_buff))){
+                    goto err;
+                }
+                status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
+                status_reg.dma_done = false;
+                /* Sanity check */
+                if(sizeof(dfu_header) < (FW_IV_LEN+FW_HMAC_LEN)){
+                    goto err;
+                }
+                hash_request(HASH_REQ_IN_PROGRESS, (uint32_t)&tmp_buff, sizeof(dfu_header)-FW_IV_LEN-FW_HMAC_LEN);
+                while (status_reg.dma_done == false){
+                    bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
+                    if(dma_error == true){
+                        /* We had a DMA error ... Get out */
+                        goto err;
+                    }
+                }
+                status_reg.dma_fifo_err = status_reg.dma_dm_err = status_reg.dma_tr_err = false;
                         status_reg.dma_done = false;
                         if (is_in_flip_mode()) {
                             hash_request(HASH_REQ_LAST, firmware_get_flop_base_addr(), dfu_header.len);
@@ -579,11 +579,13 @@ int _main(uint32_t task_id)
 				goto err;
 			}
 			printf("Firmware signature is OK!\n");
-                        ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
-                        ipc_sync_cmd.state = SYNC_DONE;
-                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+            /* going to FLASHUPDATE state */
+            set_task_state(DFUSMART_STATE_FLASHUPDATE);
+            ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
+            ipc_sync_cmd.state = SYNC_DONE;
+            sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
 
-                        break;
+            break;
                     }
                     /********* defaulting to none    *************/
                 default:
