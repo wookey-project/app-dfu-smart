@@ -26,13 +26,14 @@ CFLAGS += -ffunction-sections -fdata-sections
 CFLAGS += -Isrc/ -Iinc/
 CFLAGS += $(APPS_CFLAGS)
 CFLAGS += -I$(PROJ_FILES)/externals/libecc/src
-CFLAGS += $(EXTERNAL_CFLAGS)
+CFLAGS += $(EXTERNAL_CFLAGS) -Os
+CFLAGS += -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
 
 LDFLAGS += $(AFLAGS) -fno-builtin -nostdlib -nostartfiles -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
 
 EXTRA_LDFLAGS ?= -Tdfusmart.fw1.ld
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR) -fno-builtin -nostdlib --enable-objc-gc -Wl,--gc-sections
-LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -laes -lhmac -lstd -lsign -lfirmware -lhash -L$(APP_BUILD_DIR)
+LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -laes -lhmac -lstd -lsign -lfirmware -lhash -lflash -L$(APP_BUILD_DIR)
 
 
 BUILD_DIR ?= $(PROJ_FILE)build
