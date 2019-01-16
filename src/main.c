@@ -22,8 +22,6 @@
 
 uint8_t id_pin = 0;
 
-#define SMART_DEBUG 1
-
 /* cryptographic data */
 /* NB: we get back our decrypted signature public key here */
 unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
@@ -88,6 +86,67 @@ ec_params curve_params;
 struct ec_verify_context verif_ctx;
 ec_pub_key sig_pub_key;
 
+void init_flash_map(void)
+{
+    if (is_in_flip_mode()) {
+        t_device_mapping devmap = {
+#ifdef CONFIG_WOOKEY
+            .map_flip_shr = 1,
+            .map_flip = 0,
+            .map_flop_shr = 0,
+            .map_flop = 0,
+#else
+# if CONFIG_USR_DRV_FLASH_DUAL_BANK
+            .map_mem_bank1 = 0,
+            .map_mem_bank2 = 0,
+# else
+            .map_mem = 0,
+# endif
+#endif
+            .map_ctrl = 0,
+#ifdef CONFIG_WOOKEY
+            .map_ctrl_2 = 1,
+#endif
+            .map_system = 0,
+            .map_otp = 0,
+            .map_opt_bank1 = 0,
+#if CONFIG_USR_DRV_FLASH_DUAL_BANK
+            .map_opt_bank2 = 0,
+#endif
+        };
+        // mapping flop
+        firmware_early_init(&devmap);
+    } else if (is_in_flop_mode()) {
+        // mapping flip
+        t_device_mapping devmap = {
+#ifdef CONFIG_WOOKEY
+            .map_flip_shr = 1,
+            .map_flip = 0,
+            .map_flop_shr = 0,
+            .map_flop = 0,
+#else
+# if CONFIG_USR_DRV_FLASH_DUAL_BANK
+            .map_mem_bank1 = 0,
+            .map_mem_bank2 = 0,
+# else
+            .map_mem = 0,
+# endif
+#endif
+            .map_ctrl = 0,
+#ifdef CONFIG_WOOKEY
+            .map_ctrl_2 = 1,
+#endif
+            .map_system = 0,
+            .map_otp = 0,
+            .map_opt_bank1 = 0,
+#if CONFIG_USR_DRV_FLASH_DUAL_BANK
+            .map_opt_bank2 = 0,
+#endif
+        };
+        firmware_early_init(&devmap);
+    }
+}
+
 
 /*
  * We use the local -fno-stack-protector flag for main because
@@ -100,7 +159,11 @@ ec_pub_key sig_pub_key;
 int _main(uint32_t task_id)
 {
     /* FIXME: try to make key global, __GLOBAL_OFFSET_TAB error */
+#if SMART_DEBUG
     char *wellcome_msg = "hello, I'm smart";
+#else
+    task_id = task_id;
+#endif
 //    char buffer_out[2] = "@@";
     uint8_t id = 0;
     uint8_t id_crypto = 0;
@@ -117,13 +180,19 @@ int _main(uint32_t task_id)
 
     //
 
+#if SMART_DEBUG
     printf("%s, my id is %x\n", wellcome_msg, task_id);
+#endif
 
     ret = sys_init(INIT_GETTASKID, "dfucrypto", &id_crypto);
+#if SMART_DEBUG
     printf("crypto is task %x !\n", id_crypto);
+#endif
 
     ret = sys_init(INIT_GETTASKID, "pin", &id_pin);
+#if SMART_DEBUG
     printf("pin is task %x !\n", id_pin);
+#endif
 
 
     cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
@@ -148,6 +217,7 @@ int _main(uint32_t task_id)
     }
 #endif
 
+    init_flash_map();
 
     tokenret = token_early_init();
     switch (tokenret) {
@@ -161,10 +231,15 @@ int _main(uint32_t task_id)
             printf("error while init smartcard\n");
             break;
         default:
+#if SMART_DEBUG
             printf("Smartcard early init done\n");
+#endif
+            break;
     }
 
+#if SMART_DEBUG
     printf("set init as done\n");
+#endif
     ret = sys_init(INIT_DONE);
     printf("sys_init returns %s !\n", strerror(ret));
 
@@ -190,7 +265,9 @@ int _main(uint32_t task_id)
 
     if (   ipc_sync_cmd.magic == MAGIC_TASK_STATE_CMD
         && ipc_sync_cmd.state == SYNC_READY) {
+#if SMART_DEBUG
         printf("pin has finished its init phase, acknowledge...\n");
+#endif
     }
 
     ipc_sync_cmd.magic = MAGIC_TASK_STATE_RESP;
@@ -204,7 +281,9 @@ int _main(uint32_t task_id)
     /* Then Syncrhonize with crypto */
     size = sizeof(struct sync_command);
 
+#if SMART_DEBUG
     printf("sending end_of_init synchronization to crypto\n");
+#endif
     ipc_sync_cmd.magic = MAGIC_TASK_STATE_CMD;
     ipc_sync_cmd.state = SYNC_READY;
 
@@ -218,7 +297,9 @@ int _main(uint32_t task_id)
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
     if (   ipc_sync_cmd.magic == MAGIC_TASK_STATE_RESP
         && ipc_sync_cmd.state == SYNC_ACKNOWLEDGE) {
+#if SMART_DEBUG
         printf("crypto has acknowledge end_of_init, continuing\n");
+#endif
     }
 
     /* Register smartcard removal handler */
@@ -235,7 +316,9 @@ int _main(uint32_t task_id)
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
     if (   ipc_sync_cmd.magic == MAGIC_CRYPTO_INJECT_CMD
         && ipc_sync_cmd.state == SYNC_READY) {
+#if SMART_DEBUG
         printf("crypto is requesting key injection...\n");
+#endif
     }
 
     /*********************************************
@@ -256,7 +339,9 @@ int _main(uint32_t task_id)
         goto err;
     }
 
+#if SMART_DEBUG
     printf("cryptography and smartcard initialization done!\n");
+#endif
 
     /** Update the error recovery timeout of the channel to 300 milliseconds **/
      dfu_get_token_channel()->error_recovery_sleep = 300;
@@ -274,7 +359,9 @@ int _main(uint32_t task_id)
     } while (ret == SYS_E_BUSY);
 
     // infinite loop at end of init
+#if SMART_DEBUG
     printf("Acknowedge send, going back to sleep up keeping only smartcard watchdog.\n");
+#endif
 
 
     /*******************************************
@@ -368,7 +455,6 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                         firmware_print_header(&dfu_header);
 #endif
-#if 1
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
                         ipc_sync_cmd_data.state = SYNC_DONE;
@@ -383,7 +469,9 @@ int _main(uint32_t task_id)
                         size = sizeof(struct sync_command_data); /* max pin size: 32 */
 
                         ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
+#if SMART_DEBUG
                         printf("received (in)validation from PIN\n");
+#endif
                         if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_INVALID) {
                             /* Pin said it is invalid, returning invalid to DFU and break the download management */
                             sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
@@ -391,13 +479,17 @@ int _main(uint32_t task_id)
                         }
                         if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_VALID) {
                             /* Pin said it is valid */
+#if SMART_DEBUG
                             printf("Validation from Pin. continuing.\n");
+#endif
                         }
                         /* PIN said it is okay, continuing */
-#endif
                         /* before starting cryptographic session, let's check
                          * that this is the good file (i.e. flip for flop mode
                          * and flop for flip mode */
+                        cryp_unmap();
+                        clear_other_header();
+                        cryp_map();
 
 
                         if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
@@ -503,7 +595,9 @@ int _main(uint32_t task_id)
                             goto bad_transition;
                         }
                         set_task_state(DFUSMART_STATE_CHECKSIG);
+#if SMART_DEBUG
                         printf("checking signature of firmware\n");
+#endif
 			/* FIXME: to be moved to the lib firmware for more readability */
     			hash_init(hash_eodigest_cb, hash_dma_cb, HASH_SHA256);
 			/* Begin to hash the header */
@@ -545,8 +639,10 @@ int _main(uint32_t task_id)
 			if(hash_get_digest(digest, sizeof(digest), HASH_SHA256)){
 				goto err;
 			}
+#if SMART_DEBUG
                         printf("hash done, the hash value is:\n");
 			hexdump(digest, 32);
+#endif
 			uint8_t siglen;
 			/* Now check the signature */
         		/* Map the curve parameters to our libecc internal representation */
@@ -578,9 +674,17 @@ int _main(uint32_t task_id)
 				printf("Error: ec_verify_finalize, signature not OK\n");
 				goto err;
 			}
+#if SMART_DEBUG
 			printf("Firmware signature is OK!\n");
+#endif
             /* going to FLASHUPDATE state */
             set_task_state(DFUSMART_STATE_FLASHUPDATE);
+
+            cryp_unmap();
+            // FIXME unmap smartcard
+            set_fw_header(&dfu_header, firmware_sig);
+            cryp_map();
+
             ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
             ipc_sync_cmd.state = SYNC_DONE;
             sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
@@ -618,35 +722,47 @@ int _main(uint32_t task_id)
                         if (   ipc_sync_cmd_data.data.req.sc_type == SC_PET_PIN
                             && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
+#if SMART_DEBUG
                             printf("PIN require a Pet Pin update\n");
+#endif
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_PIN };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet pin!!!\n");
                                 continue;
                             }
+#if SMART_DEBUG
                             printf("New pet pin registered\n");
+#endif
                         } else if (   ipc_sync_cmd_data.data.req.sc_type == SC_USER_PIN
                                    && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
+#if SMART_DEBUG
                             printf("PIN require a User Pin update\n");
+#endif
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_USER_PIN };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change user pin!!!\n");
                                 continue;
                             }
+#if SMART_DEBUG
                             printf("New user pin registered\n");
+#endif
                         } else if (   ipc_sync_cmd_data.data.req.sc_type == SC_PET_NAME
                                    && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
+#if SMART_DEBUG
                             printf("PIN require a Pet Name update\n");
+#endif
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_NAME };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
                                 printf("Unable to change pet name!!!\n");
                                 continue;
                             }
+#if SMART_DEBUG
                             printf("New pet name registered\n");
+#endif
                         } else {
                             printf("Invalid PIN command bag : sc_type = %d, sc_req = %d!\n",
                                     ipc_sync_cmd_data.data.req.sc_type,

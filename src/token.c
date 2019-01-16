@@ -21,11 +21,15 @@ int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_
     uint32_t resp_magic;
 
     if(action == TOKEN_PIN_AUTHENTICATE){
+#if SMART_DEBUG
         printf("Request PIN for authentication\n");
+#endif
         ipc_sync_cmd.data.req.sc_req = SC_REQ_AUTHENTICATE;
     }
     else if (action == TOKEN_PIN_MODIFY){
+#if SMART_DEBUG
         printf("Request PIN for modification\n");
+#endif
         ipc_sync_cmd.data.req.sc_req = SC_REQ_MODIFY;
     }
     else{
@@ -39,10 +43,14 @@ int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_
     resp_magic = MAGIC_CRYPTO_PIN_RESP;
 
     if(pin_type == TOKEN_PET_PIN){
+#if SMART_DEBUG
         printf("Ask pet pin to PIN task\n");
+#endif
         ipc_sync_cmd.data.req.sc_type = SC_PET_PIN;
     } else if (pin_type == TOKEN_USER_PIN){
+#if SMART_DEBUG
 	printf("Ask user pin to PIN task\n");
+#endif
         ipc_sync_cmd.data.req.sc_type = SC_USER_PIN;
     }
     else{
@@ -63,7 +71,9 @@ int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
     if (   ipc_sync_cmd.magic == resp_magic
             && ipc_sync_cmd.state == SYNC_DONE) {
+#if SMART_DEBUG
         printf("received pin from PIN\n");
+#endif
         if(*pin_len < ipc_sync_cmd.data_size){
               goto err;
         }
@@ -82,13 +92,17 @@ int dfu_token_acknowledge_pin(token_ack_state ack, token_pin_types pin_type, tok
     uint8_t ret;
 
     if(action == TOKEN_PIN_AUTHENTICATE){
+#if SMART_DEBUG
         printf("acknowledge authentication PIN\n");
+#endif
         /* int acknowledge of authentication, returning remaining tries */
         ipc_sync_cmd.data.u32[0] = remaining_tries;
         ipc_sync_cmd.data_size = 4;
     }
     else if (action == TOKEN_PIN_MODIFY){
+#if SMART_DEBUG
         printf("acknowledge modification PIN\n");
+#endif
     }
     else{
         goto err;
@@ -154,11 +168,15 @@ int dfu_token_request_pet_name(char *pet_name, unsigned int *pet_name_len)
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
     if (   ipc_sync_cmd_data.magic == resp_magic
             && ipc_sync_cmd_data.state == SYNC_DONE) {
+#if SMART_DEBUG
         printf("received pet name from PIN: %s, size: %d\n",
                 (char*)ipc_sync_cmd_data.data.u8,
                 ipc_sync_cmd_data.data_size);
+#endif
         if(*pet_name_len < ipc_sync_cmd_data.data_size){
+#if SMART_DEBUG
               printf("pet name len (%d) too long !\n", ipc_sync_cmd_data.data_size);
+#endif
               goto err;
         }
         memcpy(pet_name, (void*)&(ipc_sync_cmd_data.data.u8), ipc_sync_cmd_data.data_size);
@@ -195,7 +213,7 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
 		goto err;
 	}
 	curve = channel->curve;
-        while(1){	
+        while(1){
 		ret = dfu_token_begin_decrypt_session(channel, header, header_len);
                 num_tries++;
 		if(!ret){
@@ -236,7 +254,7 @@ int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *deriv
         goto err;
     }
     curve = channel->curve;
-    while(1){	
+    while(1){
         ret = dfu_token_derive_key(channel, derived_key, derived_key_len, num_chunk);
         num_tries++;
         if(!ret){
@@ -277,13 +295,17 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
     // FIXME: string length check to add
     memcpy(ipc_sync_cmd.data.req.sc_petname, pet_name, pet_name_len);
 
+#if SMART_DEBUG
     printf("requesting Pet name confirmation from PIN\n");
+#endif
     do {
         ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
     } while (ret == SYS_E_BUSY);
 
 
+#if SMART_DEBUG
     printf("waiting for acknowledge from PIN for Pet name...\n");
+#endif
     /* receiving user acknowledge for pet name */
     size = sizeof(struct sync_command);
     id = id_pin;
@@ -295,7 +317,9 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
         goto err;
     }
 
+#if SMART_DEBUG
     printf("[AUTH Token] Pen name acknowledge by the user\n");
+#endif
 
     return 0;
 err:
