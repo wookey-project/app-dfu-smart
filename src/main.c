@@ -487,9 +487,15 @@ int _main(uint32_t task_id)
                         /* before starting cryptographic session, let's check
                          * that this is the good file (i.e. flip for flop mode
                          * and flop for flip mode */
-                        cryp_unmap();
+                        if (cryp_unmap()) {
+                            printf("Unable to unmap cryp!\n");
+                            goto err;
+                        }
                         clear_other_header();
-                        cryp_map();
+                        if (cryp_map()) {
+                            printf("Unable to map cryp!\n");
+                            goto err;
+                        }
 
 
                         if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
