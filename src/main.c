@@ -93,7 +93,11 @@ void init_flash_map(void)
 #ifdef CONFIG_WOOKEY
             .map_flip_shr = 1,
             .map_flip = 0,
+# if CONFIG_FIRMWARE_DUALBANK
+            .map_flop_shr = 1,
+# else
             .map_flop_shr = 0,
+# endif
             .map_flop = 0,
 #else
 # if CONFIG_USR_DRV_FLASH_DUAL_BANK
@@ -122,7 +126,11 @@ void init_flash_map(void)
 #ifdef CONFIG_WOOKEY
             .map_flip_shr = 1,
             .map_flip = 0,
+# if CONFIG_FIRMWARE_DUALBANK
+            .map_flop_shr = 1,
+# else
             .map_flop_shr = 0,
+# endif
             .map_flop = 0,
 #else
 # if CONFIG_USR_DRV_FLASH_DUAL_BANK
@@ -219,7 +227,7 @@ int _main(uint32_t task_id)
 
     init_flash_map();
 
-    tokenret = token_early_init();
+    tokenret = token_early_init(TOKEN_MAP_VOLUNTARY);
     switch (tokenret) {
         case 1:
             printf("error while declaring GPIOs\n");
@@ -251,6 +259,9 @@ int _main(uint32_t task_id)
     led_on();
 #endif
     if(hash_unmap()){
+         goto err;
+    }
+    if (token_map()) {
          goto err;
     }
 
@@ -487,15 +498,25 @@ int _main(uint32_t task_id)
                         /* before starting cryptographic session, let's check
                          * that this is the good file (i.e. flip for flop mode
                          * and flop for flip mode */
+#if 0
                         if (cryp_unmap()) {
                             printf("Unable to unmap cryp!\n");
                             goto err;
                         }
+                        if (token_unmap()) {
+                            printf("Unable to unmap token!\n");
+                            goto err;
+                        }
                         clear_other_header();
+                        if (token_map()) {
+                            printf("Unable to map token!\n");
+                            goto err;
+                        }
                         if (cryp_map()) {
                             printf("Unable to map cryp!\n");
                             goto err;
                         }
+#endif
 
 
                         if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
@@ -686,10 +707,24 @@ int _main(uint32_t task_id)
             /* going to FLASHUPDATE state */
             set_task_state(DFUSMART_STATE_FLASHUPDATE);
 
-            cryp_unmap();
-            // FIXME unmap smartcard
+            if (token_unmap()) {
+                printf("Unable to map token!\n");
+                goto err;
+            }
+            if (cryp_unmap()) {
+                printf("Unable to map cryp!\n");
+                goto err;
+            }
             set_fw_header(&dfu_header, firmware_sig);
-            cryp_map();
+            if (cryp_map()) {
+                printf("Unable to map cryp!\n");
+                goto err;
+            }
+            if (token_map()) {
+                printf("Unable to map token!\n");
+                goto err;
+            }
+
 
             ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
             ipc_sync_cmd.state = SYNC_DONE;
