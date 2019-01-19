@@ -195,7 +195,6 @@ err:
  * One should notice that such a recovery system is specifically necessary during DFU since the USB task is on heavy duty
  * with keep alive requests from the host to answer with timing constraints ...
  */
-#define DFU_TOKEN_MAX_TRIES 10
 int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const unsigned char *header, uint32_t header_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
         unsigned int num_tries;
         int ret = 0;
@@ -219,7 +218,7 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
 		if(!ret){
 			return 0;
 		}
-                if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
+                if(ret && (num_tries >= channel->error_recovery_max_send_retries)){
 			ret = -1;
                         goto err;
                 }
@@ -260,7 +259,7 @@ int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *deriv
         if(!ret){
             return 0;
         }
-        if(ret && (num_tries >= DFU_TOKEN_MAX_TRIES)){
+        if(ret && (num_tries >= channel->error_recovery_max_send_retries)){
             ret = -1;
             goto err;
         }
