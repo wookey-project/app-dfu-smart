@@ -466,6 +466,24 @@ int _main(uint32_t task_id)
 #if SMART_DEBUG
                         firmware_print_header(&dfu_header);
 #endif
+                        if (token_unmap()) {
+                            printf("Unable to map token!\n");
+                            goto err;
+                        }
+                        uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+                        if (dfu_header.version <= version) {
+                            printf("rollback alert!\n");
+                            goto err;
+                        }
+                        printf("cur version: %x, req: %x\n", dfu_header.version, version);
+                        if (token_map()) {
+                            printf("Unable to map token!\n");
+                            goto err;
+                        }
+
+
+                        /* rollback check (version comparison with current) */
+
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
                         ipc_sync_cmd_data.state = SYNC_DONE;
@@ -725,6 +743,9 @@ int _main(uint32_t task_id)
                 goto err;
             }
 
+            /* We consider that we can now reboot synchronously, as the upgrade is finished.
+             * The device will boot in nominal mode on the new firmware */
+            sys_reset();
 
             ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
             ipc_sync_cmd.state = SYNC_DONE;
