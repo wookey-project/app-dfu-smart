@@ -551,7 +551,7 @@ int _main(uint32_t task_id)
 			/* Sanity check on the size */
                         if ((is_in_flip_mode() && (dfu_header.len > firmware_get_flop_size())) ||
                             (is_in_flop_mode() && (dfu_header.len > firmware_get_flip_size()))  ) {
-                            printf("invalid size %d from header overflows partition size\n");
+                            printf("invalid size %d from header overflows partition size\n", dfu_header.len);
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_BADFILE;
