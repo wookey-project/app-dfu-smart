@@ -733,7 +733,7 @@ int _main(uint32_t task_id)
                 printf("Unable to map cryp!\n");
                 goto err;
             }
-            set_fw_header(&dfu_header, firmware_sig);
+            set_fw_header(&dfu_header, firmware_sig, digest);
             if (cryp_map()) {
                 printf("Unable to map cryp!\n");
                 goto err;
