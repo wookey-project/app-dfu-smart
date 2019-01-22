@@ -46,7 +46,7 @@ static const struct {
                                  {MAGIC_SETTINGS_LOCK,DFUSMART_STATE_IDLE},
                                  {MAGIC_SETTINGS_CMD,DFUSMART_STATE_IDLE},
                                  {MAGIC_DFU_HEADER_SEND,DFUSMART_STATE_HEADER},
-                                 {0xff,0xff},
+                                 {MAGIC_DFU_GET_FW_VERSION,DFUSMART_STATE_IDLE},
                                  {0xff,0xff}
                              }
     },

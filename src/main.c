@@ -768,6 +768,32 @@ int _main(uint32_t task_id)
              ******************************/
             switch (ipc_sync_cmd_data.magic) {
 
+                case MAGIC_DFU_GET_FW_VERSION:
+                    {
+                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_GET_FW_VERSION)) {
+                            goto bad_transition;
+                        }
+#if SMART_DEBUG
+                        printf("PIN require current FW version\n");
+#endif
+                        if (token_unmap()) {
+                            printf("Unable to map token!\n");
+                            goto err;
+                        }
+                        uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+                        printf("cur version: %x\n", version);
+                        if (token_map()) {
+                            printf("Unable to map token!\n");
+                            goto err;
+                        }
+                        ipc_sync_cmd_data.magic = MAGIC_DFU_GET_FW_VERSION;
+                        ipc_sync_cmd_data.state = SYNC_DONE;
+                        ipc_sync_cmd_data.data_size = 1;
+                        ipc_sync_cmd_data.data.u32[0] = version;
+
+                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                        break;
+                    }
                 /********* set user pin into smartcard *******/
                 case MAGIC_SETTINGS_CMD:
                     {
