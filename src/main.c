@@ -680,13 +680,13 @@ int _main(uint32_t task_id)
 					goto err;
 				}
 			}
-			uint8_t digest[32];
+			uint8_t digest[SHA256_DIGEST_SIZE];
 			if(hash_get_digest(digest, sizeof(digest), HASH_SHA256)){
 				goto err;
 			}
 #if SMART_DEBUG
                         printf("hash done, the hash value is:\n");
-			hexdump(digest, 32);
+			hexdump(digest, SHA256_DIGEST_SIZE);
 #endif
 			uint8_t siglen;
 			/* Now check the signature */
