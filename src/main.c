@@ -17,8 +17,7 @@
 #include "libfw.h"
 #include "libhash.h"
 #include "handlers.h"
-
-
+#include "api/types.h"
 
 uint8_t id_pin = 0;
 
@@ -406,7 +405,7 @@ int _main(uint32_t task_id)
 
                 case MAGIC_DFU_HEADER_SEND:
                     {
-                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_HEADER_SEND)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_DFU_HEADER_SEND) != sectrue) {
                             goto bad_transition;
                         }
 
@@ -470,17 +469,57 @@ int _main(uint32_t task_id)
                             printf("Unable to map token!\n");
                             goto err;
                         }
+#if __GNUG__
+# pragma GCC push_options
+# pragma GCC optimize("O0")
+#endif
+#if __clang__
+# pragma clang optimize off
+#endif
+			/* Make the anti-rollback check a little more robust against 
+			 * faults.
+			 */
                         uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+                        uint32_t version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
                         if (dfu_header.version <= version) {
                             printf("rollback alert!\n");
                             goto err;
                         }
+  		        if (dfu_header.version <= version_doublecheck){
+                            /* Fault */
+                            goto err;
+			}
+			if(version != version_doublecheck){
+                            /* Fault */
+                            goto err;
+			}
+			/* Better safe than sorry ... Second attempt */
+			version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+                        version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
+                        if (dfu_header.version <= version) {
+                            printf("rollback alert!\n");
+                            goto err;
+                        }
+  		        if (dfu_header.version <= version_doublecheck){
+                            /* Fault */
+                            goto err;
+			}
+			if(version != version_doublecheck){
+                            /* Fault */
+                            goto err;
+			}
                         printf("cur version: %x, req: %x\n", dfu_header.version, version);
                         if (token_map()) {
                             printf("Unable to map token!\n");
                             goto err;
                         }
 
+#if __clang__
+# pragma clang optimize on
+#endif
+#if __GNUG__
+# pragma GCC pop_options
+#endif
 
                         /* rollback check (version comparison with current) */
 
@@ -597,7 +636,7 @@ int _main(uint32_t task_id)
                 case MAGIC_CRYPTO_INJECT_CMD:
                     {
 
-                        if (!is_valid_transition(get_task_state(), MAGIC_CRYPTO_INJECT_CMD)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_CRYPTO_INJECT_CMD) != sectrue) {
                             goto bad_transition;
                         }
 
@@ -636,7 +675,7 @@ int _main(uint32_t task_id)
 				goto err;
 			}
 			/* When we enter the CHECKSIG state, nothing should make us change our state except an error */
-                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_WRITE_FINISHED)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_DFU_WRITE_FINISHED) != sectrue) {
                             goto bad_transition;
                         }
                         set_task_state(DFUSMART_STATE_CHECKSIG);
@@ -795,7 +834,7 @@ int _main(uint32_t task_id)
 
                 case MAGIC_DFU_GET_FW_VERSION:
                     {
-                        if (!is_valid_transition(get_task_state(), MAGIC_DFU_GET_FW_VERSION)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_DFU_GET_FW_VERSION) != sectrue) {
                             goto bad_transition;
                         }
 #if SMART_DEBUG
@@ -823,7 +862,7 @@ int _main(uint32_t task_id)
                 case MAGIC_SETTINGS_CMD:
                     {
 
-                        if (!is_valid_transition(get_task_state(), MAGIC_SETTINGS_CMD)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_SETTINGS_CMD) != sectrue) {
                             goto bad_transition;
                         }
                         /*
@@ -888,7 +927,7 @@ int _main(uint32_t task_id)
                 case MAGIC_SETTINGS_LOCK:
                     {
 
-                        if (!is_valid_transition(get_task_state(), MAGIC_SETTINGS_LOCK)) {
+                        if (is_valid_transition(get_task_state(), MAGIC_SETTINGS_LOCK) != sectrue) {
                             goto bad_transition;
                         }
                         sys_reset();

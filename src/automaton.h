@@ -21,7 +21,7 @@ t_dfusmart_state get_next_state(t_dfusmart_state state, uint8_t magic);
 
 void set_task_state(t_dfusmart_state state);
 
-bool is_valid_transition(t_dfusmart_state state, uint8_t magic);
+secbool is_valid_transition(t_dfusmart_state state, uint8_t magic);
 
 #if SMART_DEBUG
 const char *get_state_name(t_dfusmart_state state);
