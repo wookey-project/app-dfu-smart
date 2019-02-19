@@ -83,7 +83,7 @@ err:
 
 const ec_str_params *the_curve_const_parameters;
 ec_params curve_params;
-struct ec_verify_context verif_ctx;
+struct ec_verify_context verif_ctx, verif_ctx_double_check;
 ec_pub_key sig_pub_key;
 
 void init_flash_map(void)
@@ -706,8 +706,20 @@ int _main(uint32_t task_id)
 				printf("Error: ec_structured_pub_key_import_from_buf\n");
 				goto err;
 			}
-			/* Verify the signature */
+#if __GNUG__
+# pragma GCC push_options
+# pragma GCC optimize("O0")
+#endif
+#if __clang__
+# pragma clang optimize off
+#endif
+			/* Verify the signature with double check (against faults) */
+			int ec_ret1 = 0x55aa55aa, ec_ret2 = 0xaa55aa55;
 			if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+				printf("Error: ec_verify_init\n");
+				goto err;
+			}
+			if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
 				printf("Error: ec_verify_init\n");
 				goto err;
 			}
@@ -715,10 +727,23 @@ int _main(uint32_t task_id)
 				printf("Error: ec_verify_update\n");
 				goto err;
 			}
-			if(ec_verify_finalize(&verif_ctx)){
+			if(ec_verify_update(&verif_ctx_double_check, digest, sizeof(digest))){
+				printf("Error: ec_verify_update\n");
+				goto err;
+			}
+			ec_ret1 = ec_verify_finalize(&verif_ctx); 
+			ec_ret2 = ec_verify_finalize(&verif_ctx_double_check);
+			if(ec_ret1 || ec_ret2){
 				printf("Error: ec_verify_finalize, signature not OK\n");
 				goto err;
 			}
+#if __clang__
+# pragma clang optimize on
+#endif
+#if __GNUG__
+# pragma GCC pop_options
+#endif
+
 #if SMART_DEBUG
 			printf("Firmware signature is OK!\n");
 #endif
