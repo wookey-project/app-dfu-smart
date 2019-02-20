@@ -80,11 +80,6 @@ err:
     return 1;
 }
 
-const ec_str_params *the_curve_const_parameters;
-ec_params curve_params;
-struct ec_verify_context verif_ctx, verif_ctx_double_check;
-ec_pub_key sig_pub_key;
-
 void init_flash_map(void)
 {
     if (is_in_flip_mode()) {
@@ -155,6 +150,131 @@ void init_flash_map(void)
 }
 
 
+#if __GNUC__
+# pragma GCC push_options
+# pragma GCC optimize("O0")
+#endif
+#if __clang__
+# pragma clang optimize off
+#endif
+static secbool check_signature(const firmware_header_t *dfu_header, const uint8_t firmware_sig[EC_MAX_SIGLEN], const uint8_t *digest, uint32_t sizeofdigest){
+	uint8_t siglen;
+	const ec_str_params *the_curve_const_parameters;
+	ec_params curve_params;
+	struct ec_verify_context verif_ctx, verif_ctx_double_check;
+	ec_pub_key sig_pub_key;
+
+	if((digest == NULL) || (firmware_sig == NULL)){
+		goto err;
+	}
+	/* Check the signature */
+	/* Map the curve parameters to our libecc internal representation */
+        the_curve_const_parameters = ec_get_curve_params_by_type(dfu_get_token_channel()->curve);
+        import_params(&curve_params, the_curve_const_parameters);
+        if(ec_get_sig_len(&curve_params, ECDSA, SHA256, &siglen)){
+		printf("Error: ec_get_sig_len error\n");
+		goto err;
+	}
+	if(dfu_header->siglen != siglen){
+		/* Sanity check on the signature length we got from the header, and the one we compute */
+		printf("Error: dfu_header.siglen (%d) != siglen (%d)\n", dfu_header->siglen, siglen);
+		goto err;
+	}
+	if(ec_structured_pub_key_import_from_buf(&sig_pub_key, &curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
+		printf("Error: ec_structured_pub_key_import_from_buf\n");
+		goto err;
+	}
+
+	/* Verify the signature with double check (against faults) */
+	int ec_ret1 = 0x55aa55aa, ec_ret2 = 0xaa55aa55;
+	int ec_ret1_ = 0xaa55aa55, ec_ret2_ = 0x55aa55aa;
+	if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+		printf("Error: ec_verify_init\n");
+		goto err;
+	}
+	if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+		printf("Error: ec_verify_init\n");
+		goto err;
+	}
+	if(ec_verify_update(&verif_ctx, digest, sizeofdigest)){
+		printf("Error: ec_verify_update\n");
+		goto err;
+	}
+	if(ec_verify_update(&verif_ctx_double_check, digest, sizeofdigest)){
+		printf("Error: ec_verify_update\n");
+		goto err;
+	}
+	ec_ret1 = ec_verify_finalize(&verif_ctx); 
+	ec_ret2 = ec_verify_finalize(&verif_ctx_double_check);
+	ec_ret1_ = ec_ret1;
+	ec_ret2_ = ec_ret2;
+	if(ec_ret1 || ec_ret2){
+		printf("Error: ec_verify_finalize, signature not OK\n");
+		goto err;
+	}
+	if(ec_ret2_ || ec_ret1_){
+		printf("Error: ec_verify_finalize, signature not OK\n");
+		goto err;
+	}
+
+	return sectrue;
+
+err:
+	return secfalse;
+}
+
+static secbool check_antirollback(const firmware_header_t *dfu_header){ 
+
+	if(dfu_header == NULL){
+		goto err;
+	}
+	/* Make the anti-rollback check a little more robust against 
+	 * faults.
+	 */
+        uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+        uint32_t version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
+        if (dfu_header->version <= version) {
+            printf("rollback alert!\n");
+            goto err;
+        }
+        if (dfu_header->version <= version_doublecheck){
+            /* Fault */
+            goto err;
+	}
+	if(version != version_doublecheck){
+            /* Fault */
+            goto err;
+	}
+	/* Better safe than sorry ... Second attempt */
+	version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+        version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
+        if (dfu_header->version <= version) {
+            printf("rollback alert!\n");
+            goto err;
+        }
+        if (dfu_header->version <= version_doublecheck){
+            /* Fault */
+            goto err;
+	}
+	if(version != version_doublecheck){
+            /* Fault */
+            goto err;
+	}
+        printf("cur version: %x, req: %x\n", dfu_header->version, version);
+
+	return sectrue;
+
+err:
+	return secfalse;
+}
+#if __clang__
+# pragma clang optimize on
+#endif
+#if __GNUC__
+# pragma GCC pop_options
+#endif
+
+
 /*
  * We use the local -fno-stack-protector flag for main because
  * the stack protection has not been initialized yet.
@@ -171,7 +291,6 @@ int _main(uint32_t task_id)
 #else
     task_id = task_id;
 #endif
-//    char buffer_out[2] = "@@";
     uint8_t id = 0;
     uint8_t id_crypto = 0;
     e_syscall_ret ret = 0;
@@ -469,59 +588,15 @@ int _main(uint32_t task_id)
                             printf("Unable to map token!\n");
                             goto err;
                         }
-#if __GNUG__
-# pragma GCC push_options
-# pragma GCC optimize("O0")
-#endif
-#if __clang__
-# pragma clang optimize off
-#endif
-			/* Make the anti-rollback check a little more robust against 
-			 * faults.
-			 */
-                        uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
-                        uint32_t version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
-                        if (dfu_header.version <= version) {
-                            printf("rollback alert!\n");
-                            goto err;
-                        }
-  		        if (dfu_header.version <= version_doublecheck){
-                            /* Fault */
-                            goto err;
-			}
-			if(version != version_doublecheck){
-                            /* Fault */
-                            goto err;
-			}
-			/* Better safe than sorry ... Second attempt */
-			version = fw_get_current_version(FW_VERSION_FIELD_ALL);
-                        version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
-                        if (dfu_header.version <= version) {
-                            printf("rollback alert!\n");
-                            goto err;
-                        }
-  		        if (dfu_header.version <= version_doublecheck){
-                            /* Fault */
-                            goto err;
-			}
-			if(version != version_doublecheck){
-                            /* Fault */
-                            goto err;
-			}
-                        printf("cur version: %x, req: %x\n", dfu_header.version, version);
-                        if (token_map()) {
-                            printf("Unable to map token!\n");
-                            goto err;
-                        }
-
-#if __clang__
-# pragma clang optimize on
-#endif
-#if __GNUG__
-# pragma GCC pop_options
-#endif
 
                         /* rollback check (version comparison with current) */
+			if(check_antirollback(&dfu_header) != sectrue){
+				goto err;
+			}
+		        if (token_map()) {
+		            printf("Unable to map token!\n");
+		            goto err;
+		        }
 
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
@@ -727,71 +802,16 @@ int _main(uint32_t task_id)
                         printf("hash done, the hash value is:\n");
 			hexdump(digest, SHA256_DIGEST_SIZE);
 #endif
-			uint8_t siglen;
-			/* Now check the signature */
-        		/* Map the curve parameters to our libecc internal representation */
-		        the_curve_const_parameters = ec_get_curve_params_by_type(dfu_get_token_channel()->curve);
-		        import_params(&curve_params, the_curve_const_parameters);
-		        if(ec_get_sig_len(&curve_params, ECDSA, SHA256, &siglen)){
-				printf("Error: ec_get_sig_len error\n");
-                		goto err;
-        		}
-			if(dfu_header.siglen != siglen){
-				/* Sanity check on the signature length we got from the header, and the one we compute */
-				printf("Error: dfu_header.siglen (%d) != siglen (%d)\n", dfu_header.siglen, siglen);
-				goto err;
-			}
-			if(ec_structured_pub_key_import_from_buf(&sig_pub_key, &curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
-				printf("Error: ec_structured_pub_key_import_from_buf\n");
-				goto err;
-			}
-#if __GNUG__
-# pragma GCC push_options
-# pragma GCC optimize("O0")
+
+	if(check_signature(&dfu_header, firmware_sig, digest, sizeof(digest)) != sectrue){
+#if SMART_DEBUG
+		printf("Firmware signature is NOK ...\n");
 #endif
-#if __clang__
-# pragma clang optimize off
-#endif
-			/* Verify the signature with double check (against faults) */
-			int ec_ret1 = 0x55aa55aa, ec_ret2 = 0xaa55aa55;
-			int ec_ret1_ = 0xaa55aa55, ec_ret2_ = 0x55aa55aa;
-			if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
-				printf("Error: ec_verify_init\n");
-				goto err;
-			}
-			if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
-				printf("Error: ec_verify_init\n");
-				goto err;
-			}
-			if(ec_verify_update(&verif_ctx, digest, sizeof(digest))){
-				printf("Error: ec_verify_update\n");
-				goto err;
-			}
-			if(ec_verify_update(&verif_ctx_double_check, digest, sizeof(digest))){
-				printf("Error: ec_verify_update\n");
-				goto err;
-			}
-			ec_ret1 = ec_verify_finalize(&verif_ctx); 
-			ec_ret2 = ec_verify_finalize(&verif_ctx_double_check);
-			ec_ret1_ = ec_ret1;
-			ec_ret2_ = ec_ret2;
-			if(ec_ret1 || ec_ret2){
-				printf("Error: ec_verify_finalize, signature not OK\n");
-				goto err;
-			}
-			if(ec_ret2_ || ec_ret1_){
-				printf("Error: ec_verify_finalize, signature not OK\n");
-				goto err;
-			}
-#if __clang__
-# pragma clang optimize on
-#endif
-#if __GNUG__
-# pragma GCC pop_options
-#endif
+		goto err;
+	}
 
 #if SMART_DEBUG
-			printf("Firmware signature is OK!\n");
+		printf("Firmware signature is OK!\n");
 #endif
             /* going to FLASHUPDATE state */
             set_task_state(DFUSMART_STATE_FLASHUPDATE);

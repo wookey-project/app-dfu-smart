@@ -133,18 +133,18 @@ void set_task_state(t_dfusmart_state state)
     task_state = state;
 }
 
-secbool is_valid_transition(t_dfusmart_state state, uint8_t magic)
-{
-    /* Try to make the automaton transition a bit more robust
-     * against fault attacks.
-     */
-#if __GNUG__
+#if __GNUC__
 # pragma GCC push_options
 # pragma GCC optimize("O0")
 #endif
 #if __clang__
 # pragma clang optimize off
 #endif
+secbool is_valid_transition(t_dfusmart_state state, uint8_t magic)
+{
+    /* Try to make the automaton transition a bit more robust
+     * against fault attacks.
+     */
     /* FIXME: need automaton tab to be written */
     for (uint8_t i = 0; i < 5; ++i) {
         if (smart_automaton[state].req_trans[i].request == magic) {
@@ -157,11 +157,10 @@ secbool is_valid_transition(t_dfusmart_state state, uint8_t magic)
         }
     }
     return secfalse;
+}
 #if __clang__
 # pragma clang optimize on
 #endif
-#if __GNUG__
+#if __GNUC__
 # pragma GCC pop_options
 #endif
-}
-
