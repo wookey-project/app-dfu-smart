@@ -5,9 +5,8 @@
 
 volatile status_reg_t status_reg = { 0 }; 
 
-void hash_dma_cb(uint8_t irq, uint32_t status)
+void hash_dma_cb(__attribute__((unused)) uint8_t irq, uint32_t status)
 {
-    irq = irq;
     if(status & DMA_FIFO_ERROR){
         status_reg.dma_fifo_err = true;
     }
@@ -26,8 +25,6 @@ void hash_dma_cb(uint8_t irq, uint32_t status)
 }
 
 
-void hash_eodigest_cb(uint8_t irq, uint32_t status)
+void hash_eodigest_cb(__attribute__((unused)) uint8_t irq, __attribute__((unused)) uint32_t status)
 {
-    irq = irq;
-    status = status;
 }

@@ -133,12 +133,13 @@ void set_task_state(t_dfusmart_state state)
     task_state = state;
 }
 
-#if __GNUC__
+#ifdef __GNUC__
+#ifdef __clang__
+# pragma clang optimize off
+#else
 # pragma GCC push_options
 # pragma GCC optimize("O0")
 #endif
-#if __clang__
-# pragma clang optimize off
 #endif
 secbool is_valid_transition(t_dfusmart_state state, uint8_t magic)
 {
@@ -158,9 +159,10 @@ secbool is_valid_transition(t_dfusmart_state state, uint8_t magic)
     }
     return secfalse;
 }
-#if __clang__
+#ifdef __GNUC__
+#ifdef __clang__
 # pragma clang optimize on
-#endif
-#if __GNUC__
+#else
 # pragma GCC pop_options
+#endif
 #endif

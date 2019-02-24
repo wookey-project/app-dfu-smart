@@ -29,7 +29,8 @@ CFLAGS += -I$(PROJ_FILES)/externals/libecc/src
 CFLAGS += $(EXTERNAL_CFLAGS) -Os
 CFLAGS += -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
 
-LDFLAGS += $(AFLAGS) -fno-builtin -nostdlib -nostartfiles -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
+LDFLAGS += -fno-builtin -nostdlib -nostartfiles $(AFLAGS_GCC) -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
+#LDFLAGS += $(AFLAGS) -fno-builtin -nostdlib -nostartfiles -Wl,-Map=$(APP_BUILD_DIR)/$(APP_NAME).map
 
 EXTRA_LDFLAGS ?= -Tdfusmart.fw1.ld
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR) -fno-builtin -nostdlib --enable-objc-gc -Wl,--gc-sections

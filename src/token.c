@@ -122,7 +122,9 @@ int dfu_token_acknowledge_pin(token_ack_state ack, token_pin_types pin_type, tok
     //do {
         ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
         if (ret != SYS_E_DONE) {
+#if SMART_DEBUG
             printf("unable to acknowledge!\n");
+#endif
             while (1);
         }
     //} while (ret == SYS_E_BUSY);
@@ -312,7 +314,9 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
 
     if (ipc_sync_cmd.magic != MAGIC_CRYPTO_PIN_RESP ||
         ipc_sync_cmd.state != SYNC_ACKNOWLEDGE) {
+#if SMART_DEBUG
         printf("[AUTH Token] Pen name has not been acknowledged by the user\n");
+#endif
         goto err;
     }
 

@@ -61,11 +61,15 @@ static int smart_derive_and_inject_key(uint8_t *derived_key, uint32_t derived_ke
     }
     /* Sanity check: we should not overflow the maximum chunk number */
     if(num_chunk > max_num_chunk){
+#if SMART_DEBUG
         printf("Error during key derivation ... asked chunk number %d exceeds max chunk number %d\n", num_chunk, max_num_chunk);
+#endif
         goto err;
     }
     if(dfu_token_derive_key_with_error(dfu_get_token_channel(), derived_key, derived_key_len, num_chunk, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))){
+#if SMART_DEBUG
         printf("Error during key derivation ... dfu_token_derive_key_with_error\n");
+#endif
         set_task_state(DFUSMART_STATE_ERROR);
         goto err;
     }
@@ -150,12 +154,13 @@ void init_flash_map(void)
 }
 
 
-#if __GNUC__
+#ifdef __GNUC__
+#ifdef __clang__
+# pragma clang optimize off
+#else
 # pragma GCC push_options
 # pragma GCC optimize("O0")
 #endif
-#if __clang__
-# pragma clang optimize off
 #endif
 static secbool check_signature(const firmware_header_t *dfu_header, const uint8_t firmware_sig[EC_MAX_SIGLEN], const uint8_t *digest, uint32_t sizeofdigest){
 	uint8_t siglen;
@@ -172,16 +177,22 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
         the_curve_const_parameters = ec_get_curve_params_by_type(dfu_get_token_channel()->curve);
         import_params(&curve_params, the_curve_const_parameters);
         if(ec_get_sig_len(&curve_params, ECDSA, SHA256, &siglen)){
+#if SMART_DEBUG
 		printf("Error: ec_get_sig_len error\n");
+#endif
 		goto err;
 	}
 	if(dfu_header->siglen != siglen){
 		/* Sanity check on the signature length we got from the header, and the one we compute */
+#if SMART_DEBUG
 		printf("Error: dfu_header.siglen (%d) != siglen (%d)\n", dfu_header->siglen, siglen);
+#endif
 		goto err;
 	}
 	if(ec_structured_pub_key_import_from_buf(&sig_pub_key, &curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
+#if SMART_DEBUG
 		printf("Error: ec_structured_pub_key_import_from_buf\n");
+#endif
 		goto err;
 	}
 
@@ -189,19 +200,27 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 	int ec_ret1 = 0x55aa55aa, ec_ret2 = 0xaa55aa55;
 	int ec_ret1_ = 0xaa55aa55, ec_ret2_ = 0x55aa55aa;
 	if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+#if SMART_DEBUG
 		printf("Error: ec_verify_init\n");
+#endif
 		goto err;
 	}
 	if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+#if SMART_DEBUG
 		printf("Error: ec_verify_init\n");
+#endif
 		goto err;
 	}
 	if(ec_verify_update(&verif_ctx, digest, sizeofdigest)){
+#if SMART_DEBUG
 		printf("Error: ec_verify_update\n");
+#endif
 		goto err;
 	}
 	if(ec_verify_update(&verif_ctx_double_check, digest, sizeofdigest)){
+#if SMART_DEBUG
 		printf("Error: ec_verify_update\n");
+#endif
 		goto err;
 	}
 	ec_ret1 = ec_verify_finalize(&verif_ctx); 
@@ -209,11 +228,15 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 	ec_ret1_ = ec_ret1;
 	ec_ret2_ = ec_ret2;
 	if(ec_ret1 || ec_ret2){
+#if SMART_DEBUG
 		printf("Error: ec_verify_finalize, signature not OK\n");
+#endif
 		goto err;
 	}
 	if(ec_ret2_ || ec_ret1_){
+#if SMART_DEBUG
 		printf("Error: ec_verify_finalize, signature not OK\n");
+#endif
 		goto err;
 	}
 
@@ -234,7 +257,9 @@ static secbool check_antirollback(const firmware_header_t *dfu_header){
         uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
         uint32_t version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
         if (dfu_header->version <= version) {
+#if SMART_DEBUG
             printf("rollback alert!\n");
+#endif
             goto err;
         }
         if (dfu_header->version <= version_doublecheck){
@@ -249,7 +274,9 @@ static secbool check_antirollback(const firmware_header_t *dfu_header){
 	version = fw_get_current_version(FW_VERSION_FIELD_ALL);
         version_doublecheck = fw_get_current_version(FW_VERSION_FIELD_ALL);
         if (dfu_header->version <= version) {
+#if SMART_DEBUG
             printf("rollback alert!\n");
+#endif
             goto err;
         }
         if (dfu_header->version <= version_doublecheck){
@@ -260,20 +287,21 @@ static secbool check_antirollback(const firmware_header_t *dfu_header){
             /* Fault */
             goto err;
 	}
+#if SMART_DEBUG
         printf("cur version: %x, req: %x\n", dfu_header->version, version);
-
+#endif
 	return sectrue;
 
 err:
 	return secfalse;
 }
-#if __clang__
+#ifdef __GNUC__
+#ifdef __clang__
 # pragma clang optimize on
-#endif
-#if __GNUC__
+#else
 # pragma GCC pop_options
 #endif
-
+#endif
 
 /*
  * We use the local -fno-stack-protector flag for main because
@@ -283,13 +311,15 @@ err:
  * without compiler complain. argc/argv is not a goot idea in term
  * of size and calculation in a microcontroler
  */
+#if SMART_DEBUG
 int _main(uint32_t task_id)
+#else
+int _main(__attribute__((unused)) uint32_t task_id)
+#endif
 {
     /* FIXME: try to make key global, __GLOBAL_OFFSET_TAB error */
 #if SMART_DEBUG
     char *wellcome_msg = "hello, I'm smart";
-#else
-    task_id = task_id;
 #endif
     uint8_t id = 0;
     uint8_t id_crypto = 0;
@@ -327,7 +357,8 @@ int _main(uint32_t task_id)
 #if CONFIG_WOOKEY
     // led info
     //
-    device_t dev = { 0 };
+    device_t dev;
+    memset(&dev, 0, sizeof(device_t));
     strncpy(dev.name, "smart_dfu_led", sizeof("smart_dfu_led"));
     dev.gpio_num = 1;
     dev.gpios[0].mask = GPIO_MASK_SET_MODE | GPIO_MASK_SET_PUPD | GPIO_MASK_SET_SPEED;
@@ -339,7 +370,10 @@ int _main(uint32_t task_id)
 
     ret = sys_init(INIT_DEVACCESS, &dev, &dev_desc);
     if (ret != 0) {
+#if SMART_DEBUG
         printf("Error while declaring LED GPIO device: %d\n", ret);
+#endif
+	goto err;
     }
 #endif
 
@@ -348,14 +382,20 @@ int _main(uint32_t task_id)
     tokenret = token_early_init(TOKEN_MAP_VOLUNTARY);
     switch (tokenret) {
         case 1:
+#if SMART_DEBUG
             printf("error while declaring GPIOs\n");
-            break;
+#endif
+            goto err;
         case 2:
+#if SMART_DEBUG
             printf("error while declaring USART\n");
-            break;
+#endif
+            goto err;
         case 3:
+#if SMART_DEBUG
             printf("error while init smartcard\n");
-            break;
+#endif
+            goto err;
         default:
 #if SMART_DEBUG
             printf("Smartcard early init done\n");
@@ -367,8 +407,9 @@ int _main(uint32_t task_id)
     printf("set init as done\n");
 #endif
     ret = sys_init(INIT_DONE);
+#if SMART_DEBUG
     printf("sys_init returns %s !\n", strerror(ret));
-
+#endif
     /*******************************************
      * End of init phase, let's start nominal one
      *******************************************/
@@ -585,7 +626,9 @@ int _main(uint32_t task_id)
                         firmware_print_header(&dfu_header);
 #endif
                         if (token_unmap()) {
+#if SMART_DEBUG
                             printf("Unable to map token!\n");
+#endif
                             goto err;
                         }
 
@@ -594,7 +637,9 @@ int _main(uint32_t task_id)
 				goto err;
 			}
 		        if (token_map()) {
+#if SMART_DEBUG
 		            printf("Unable to map token!\n");
+#endif
 		            goto err;
 		        }
 
@@ -653,7 +698,9 @@ int _main(uint32_t task_id)
 
                         if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
                             (is_in_flop_mode() && (firmware_is_partition_flop(&dfu_header) == true))  ) {
+#if SMART_DEBUG
                             printf("invalid file: trying to erase current bank \n");
+#endif
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_BADFILE;
@@ -665,7 +712,9 @@ int _main(uint32_t task_id)
 			/* Sanity check on the size */
                         if ((is_in_flip_mode() && (dfu_header.len > firmware_get_flop_size())) ||
                             (is_in_flop_mode() && (dfu_header.len > firmware_get_flip_size()))  ) {
+#if SMART_DEBUG
                             printf("invalid size %d from header overflows partition size\n", dfu_header.len);
+#endif
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_BADFILE;
@@ -817,20 +866,28 @@ int _main(uint32_t task_id)
             set_task_state(DFUSMART_STATE_FLASHUPDATE);
 
             if (token_unmap()) {
+#if SMART_DEBUG
                 printf("Unable to map token!\n");
+#endif
                 goto err;
             }
             if (cryp_unmap()) {
+#if SMART_DEBUG
                 printf("Unable to map cryp!\n");
+#endif
                 goto err;
             }
             set_fw_header(&dfu_header, firmware_sig, digest);
             if (cryp_map()) {
+#if SMART_DEBUG
                 printf("Unable to map cryp!\n");
+#endif
                 goto err;
             }
             if (token_map()) {
+#if SMART_DEBUG
                 printf("Unable to map token!\n");
+#endif
                 goto err;
             }
 
@@ -868,13 +925,19 @@ int _main(uint32_t task_id)
                         printf("PIN require current FW version\n");
 #endif
                         if (token_unmap()) {
+#if SMART_DEBUG
                             printf("Unable to map token!\n");
+#endif
                             goto err;
                         }
                         uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
+#if SMART_DEBUG
                         printf("cur version: %x\n", version);
+#endif
                         if (token_map()) {
+#if SMART_DEBUG
                             printf("Unable to map token!\n");
+#endif
                             goto err;
                         }
                         ipc_sync_cmd_data.magic = MAGIC_DFU_GET_FW_VERSION;
@@ -907,7 +970,9 @@ int _main(uint32_t task_id)
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_PIN };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+#if SMART_DEBUG
                                 printf("Unable to change pet pin!!!\n");
+#endif
                                 continue;
                             }
 #if SMART_DEBUG
@@ -922,7 +987,9 @@ int _main(uint32_t task_id)
 
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_USER_PIN };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+#if SMART_DEBUG
                                 printf("Unable to change user pin!!!\n");
+#endif
                                 continue;
                             }
 #if SMART_DEBUG
@@ -936,16 +1003,20 @@ int _main(uint32_t task_id)
 #endif
                             token_unlock_operations ops[] = { TOKEN_UNLOCK_PRESENT_USER_PIN, TOKEN_UNLOCK_CHANGE_PET_NAME };
                             if(dfu_token_unlock_ops_exec(dfu_get_token_channel(), ops, sizeof(ops)/sizeof(token_unlock_operations), &dfu_token_callbacks, 0, 0, NULL, 0)){
+#if SMART_DEBUG
                                 printf("Unable to change pet name!!!\n");
+#endif
                                 continue;
                             }
 #if SMART_DEBUG
                             printf("New pet name registered\n");
 #endif
                         } else {
+#if SMART_DEBUG
                             printf("Invalid PIN command bag : sc_type = %d, sc_req = %d!\n",
                                     ipc_sync_cmd_data.data.req.sc_type,
                                     ipc_sync_cmd_data.data.req.sc_req);
+#endif
                         }
                         break;
                     }
@@ -968,9 +1039,11 @@ int _main(uint32_t task_id)
                     /********* defaulting to none    *************/
                 default:
                     {
+#if SMART_DEBUG
                         printf("unknown request !!!\n");
+#endif
                         // FIXME: to be added: goto bad_transition;
-                        break;
+                        goto bad_transition;
                     }
             }
 
