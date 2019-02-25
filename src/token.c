@@ -294,6 +294,10 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
     ipc_sync_cmd.data.req.sc_req = SC_REQ_AUTHENTICATE;
 
     // FIXME: string length check to add
+    if(pet_name_len > sizeof(ipc_sync_cmd.data.req.sc_petname)){
+        printf("pet name length %d too long!\n", pet_name_len);
+        goto err;
+    }
     memcpy(ipc_sync_cmd.data.req.sc_petname, pet_name, pet_name_len);
 
 #if SMART_DEBUG
