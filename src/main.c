@@ -223,7 +223,7 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 #endif
 		goto err;
 	}
-	ec_ret1 = ec_verify_finalize(&verif_ctx); 
+	ec_ret1 = ec_verify_finalize(&verif_ctx);
 	ec_ret2 = ec_verify_finalize(&verif_ctx_double_check);
 	ec_ret1_ = ec_ret1;
 	ec_ret2_ = ec_ret2;
@@ -246,12 +246,12 @@ err:
 	return secfalse;
 }
 
-static secbool check_antirollback(const firmware_header_t *dfu_header){ 
+static secbool check_antirollback(const firmware_header_t *dfu_header){
 
 	if(dfu_header == NULL){
 		goto err;
 	}
-	/* Make the anti-rollback check a little more robust against 
+	/* Make the anti-rollback check a little more robust against
 	 * faults.
 	 */
         uint32_t version = fw_get_current_version(FW_VERSION_FIELD_ALL);
@@ -638,10 +638,17 @@ int _main(__attribute__((unused)) uint32_t task_id)
 			}
 		        if (token_map()) {
 #if SMART_DEBUG
-		            printf("Unable to map token!\n");
+		             printf("Unable to map token!\n");
 #endif
 		            goto err;
 		        }
+		        if (cryp_map()) {
+#if SMART_DEBUG
+		             printf("Unable to map token!\n");
+#endif
+		            goto err;
+		        }
+
 
                         /* now let's ask the user for validation */
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
@@ -722,17 +729,17 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             /* returning back to IDLE */
                             set_task_state(DFUSMART_STATE_IDLE);
                             continue;
-			}
-			/* Compute the number of crypto chunks we have from the header */
-			max_num_chunk = dfu_header.len / dfu_header.chunksize;
+                        }
+                        /* Compute the number of crypto chunks we have from the header */
+                        max_num_chunk = dfu_header.len / dfu_header.chunksize;
                         /* Now that we have the header, let's begin our decrypt session */
                         if(dfu_token_begin_decrypt_session_with_error(dfu_get_token_channel(), tmp_buff, sizeof(dfu_header)+dfu_header.siglen, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag))) {
 #if SMART_DEBUG
                             printf("Error: dfu_token_begin_decrypt_session returned an error!");
 #endif
-		    	    goto err;
-			}
-			num_chunk = 0;
+                            goto err;
+                        }
+                        num_chunk = 0;
 
                         ret = smart_derive_and_inject_key(derived_key, sizeof(derived_key), num_chunk);
                         if (ret) {
@@ -741,7 +748,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
 #endif
                             goto err;
                         }
-			num_chunk++;
+                        num_chunk++;
                         /* sending back acknowledge to DFUUSB */
                         memset((void*)&ipc_sync_cmd_data, 0, sizeof(struct sync_command_data));
                         ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_VALID;
@@ -1043,7 +1050,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         printf("unknown request !!!\n");
 #endif
                         // FIXME: to be added: goto bad_transition;
-                        goto bad_transition;
+                        // Although, there is still a HEADER_VALID IPC
+                        // reception at DWNLOAD time that should be understood
+                        // before...
+                        break;
                     }
             }
 
