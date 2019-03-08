@@ -88,7 +88,7 @@ void init_flash_map(void)
 {
     if (is_in_flip_mode()) {
         t_device_mapping devmap = {
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
             .map_flip_shr = 1,
             .map_flip = 0,
 # if CONFIG_FIRMWARE_DUALBANK
@@ -106,7 +106,7 @@ void init_flash_map(void)
 # endif
 #endif
             .map_ctrl = 0,
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
             .map_ctrl_2 = 1,
 #endif
             .map_system = 0,
@@ -121,7 +121,7 @@ void init_flash_map(void)
     } else if (is_in_flop_mode()) {
         // mapping flip
         t_device_mapping devmap = {
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
             .map_flip_shr = 1,
             .map_flip = 0,
 # if CONFIG_FIRMWARE_DUALBANK
@@ -139,7 +139,7 @@ void init_flash_map(void)
 # endif
 #endif
             .map_ctrl = 0,
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
             .map_ctrl_2 = 1,
 #endif
             .map_system = 0,
@@ -354,7 +354,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
     cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
     hash_early_init(HASh_TRANS_DMA, HASH_MAP_VOLUNTARY, HASH_POLL_MODE);
 
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
     // led info
     //
     device_t dev;
@@ -414,7 +414,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
      * End of init phase, let's start nominal one
      *******************************************/
 
-#if CONFIG_WOOKEY || CONFIG_WOOKEY2
+#if CONFIG_WOOKEY
     led_on();
 #endif
     if(hash_unmap()){
