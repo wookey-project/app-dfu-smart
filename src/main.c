@@ -6,7 +6,8 @@
  */
 
 #include "api/syscall.h"
-#include "api/print.h"
+#include "api/stdio.h"
+#include "api/nostd.h"
 #include "libcryp.h"
 #include "libtoken_dfu.h"
 #include "aes.h"

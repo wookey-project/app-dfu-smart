@@ -3,7 +3,8 @@
 
 #include "autoconf.h"
 #include "api/syscall.h"
-#include "api/print.h"
+#include "api/stdio.h"
+#include "api/nostd.h"
 #include "api/string.h"
 #include "api/types.h"
 #include "libtoken_dfu.h"

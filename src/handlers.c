@@ -1,4 +1,5 @@
-#include "api/print.h"
+#include "api/stdio.h"
+#include "api/nostd.h"
 #include "api/types.h"
 #include "api/syscall.h"
 #include "main.h"
