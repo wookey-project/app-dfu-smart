@@ -730,6 +730,15 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         break;
                     }
 
+                case MAGIC_REBOOT_REQUEST:
+                    {
+                        /* reboot request happend on header parsing, and are refused during fownload and checksig states */
+                        if (is_valid_transition(get_task_state(), MAGIC_REBOOT_REQUEST) != sectrue) {
+                            goto bad_transition;
+                        }
+                        sys_reset();
+                        break;
+                    }
 
                 /********* Key injection request *************/
                 case MAGIC_CRYPTO_INJECT_CMD:

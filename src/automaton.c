@@ -48,7 +48,7 @@ static const struct {
                                  {MAGIC_SETTINGS_CMD,DFUSMART_STATE_IDLE},
                                  {MAGIC_DFU_HEADER_SEND,DFUSMART_STATE_HEADER},
                                  {MAGIC_DFU_GET_FW_VERSION,DFUSMART_STATE_IDLE},
-                                 {0xff,0xff}
+                                 {MAGIC_REBOOT_REQUEST,DFUSMART_STATE_ERROR}
                              }
     },
     /* Get header phase, during which DFUUSB send the header to Smart */
