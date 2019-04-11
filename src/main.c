@@ -36,12 +36,6 @@ databag saved_decrypted_keybag[] = {
     { .data = decrypted_platform_pub_key_data, .size = sizeof(decrypted_platform_pub_key_data) },
 };
 
-static void led_on(void)
-{
-    /* toggle led ON */
-    sys_cfg(CFG_GPIO_SET, (uint8_t)((('C' - 'A') << 4) + 5), 1);
-}
-
 static void smartcard_removal_action(void){
     /* Check if smartcard has been removed, and reboot if yes */
     if((dfu_get_token_channel()->card.type != SMARTCARD_UNKNOWN) && !SC_is_smartcard_inserted(&(dfu_get_token_channel()->card))){
@@ -333,7 +327,6 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
     // smartcard vars
     int tokenret = 0;
-    int dev_desc;
 
     //
 
@@ -354,29 +347,6 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
     cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
     hash_early_init(HASh_TRANS_DMA, HASH_MAP_VOLUNTARY, HASH_POLL_MODE);
-
-#if CONFIG_WOOKEY
-    // led info
-    //
-    device_t dev;
-    memset(&dev, 0, sizeof(device_t));
-    strncpy(dev.name, "smart_dfu_led", sizeof("smart_dfu_led"));
-    dev.gpio_num = 1;
-    dev.gpios[0].mask = GPIO_MASK_SET_MODE | GPIO_MASK_SET_PUPD | GPIO_MASK_SET_SPEED;
-    dev.gpios[0].kref.port = GPIO_PC;
-    dev.gpios[0].kref.pin = 5;
-    dev.gpios[0].pupd = GPIO_NOPULL;
-    dev.gpios[0].mode = GPIO_PIN_OUTPUT_MODE;
-    dev.gpios[0].speed = GPIO_PIN_HIGH_SPEED;
-
-    ret = sys_init(INIT_DEVACCESS, &dev, &dev_desc);
-    if (ret != 0) {
-#if SMART_DEBUG
-        printf("Error while declaring LED GPIO device: %d\n", ret);
-#endif
-	goto err;
-    }
-#endif
 
     init_flash_map();
 
@@ -415,9 +385,6 @@ int _main(__attribute__((unused)) uint32_t task_id)
      * End of init phase, let's start nominal one
      *******************************************/
 
-#if CONFIG_WOOKEY
-    led_on();
-#endif
     if(hash_unmap()){
          goto err;
     }
