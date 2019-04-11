@@ -736,6 +736,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         if (is_valid_transition(get_task_state(), MAGIC_REBOOT_REQUEST) != sectrue) {
                             goto bad_transition;
                         }
+                        printf("Reset request!\n");
                         sys_reset();
                         break;
                     }
