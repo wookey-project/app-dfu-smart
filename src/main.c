@@ -618,56 +618,59 @@ int _main(__attribute__((unused)) uint32_t task_id)
 		        }
 
 
-                        /* now let's ask the user for validation */
-                        ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
-                        ipc_sync_cmd_data.state = SYNC_DONE;
-                        /* FIXME: the fields that need to be user-validated are still to be selected */
-                        ipc_sync_cmd_data.data.u32[0] = dfu_header.magic;
-                        ipc_sync_cmd_data.data.u32[1] = dfu_header.version;
-                        ipc_sync_cmd_data.data_size = 2;
-                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
-
-                        /* Now wait for Acknowledge from pin */
-                        id = id_pin;
-                        size = sizeof(struct sync_command_data); /* max pin size: 32 */
-
-                        ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
+                /* now let's ask the user for validation */
 #if SMART_DEBUG
-                        printf("received (in)validation from PIN\n");
+                printf("requesting acknowledge for magic %08x, version %d\n", dfu_header.magic, dfu_header.version);
 #endif
-                        if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_INVALID) {
-                            /* Pin said it is invalid, returning invalid to DFU and break the download management */
-                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
-                            continue;
-                        }
-                        if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_VALID) {
-                            /* Pin said it is valid */
+                ipc_sync_cmd_data.magic = MAGIC_DFU_HEADER_SEND;
+                ipc_sync_cmd_data.state = SYNC_DONE;
+                /* FIXME: the fields that need to be user-validated are still to be selected */
+                ipc_sync_cmd_data.data.u32[0] = dfu_header.magic;
+                ipc_sync_cmd_data.data.u32[1] = dfu_header.version;
+                ipc_sync_cmd_data.data_size = 2;
+                sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+
+                /* Now wait for Acknowledge from pin */
+                id = id_pin;
+                size = sizeof(struct sync_command_data); /* max pin size: 32 */
+
+                ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
 #if SMART_DEBUG
-                            printf("Validation from Pin. continuing.\n");
+                printf("received (in)validation from PIN\n");
 #endif
-                        }
-                        /* PIN said it is okay, continuing */
-                        /* before starting cryptographic session, let's check
-                         * that this is the good file (i.e. flip for flop mode
-                         * and flop for flip mode */
+                if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_INVALID) {
+                    /* Pin said it is invalid, returning invalid to DFU and break the download management */
+                    sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                    continue;
+                }
+                if (ipc_sync_cmd_data.magic == MAGIC_DFU_HEADER_VALID) {
+                    /* Pin said it is valid */
+#if SMART_DEBUG
+                    printf("Validation from Pin. continuing.\n");
+#endif
+                }
+                /* PIN said it is okay, continuing */
+                /* before starting cryptographic session, let's check
+                 * that this is the good file (i.e. flip for flop mode
+                 * and flop for flip mode */
 #if 0
-                        if (cryp_unmap()) {
-                            printf("Unable to unmap cryp!\n");
-                            goto err;
-                        }
-                        if (token_unmap()) {
-                            printf("Unable to unmap token!\n");
-                            goto err;
-                        }
-                        clear_other_header();
-                        if (token_map()) {
-                            printf("Unable to map token!\n");
-                            goto err;
-                        }
-                        if (cryp_map()) {
-                            printf("Unable to map cryp!\n");
-                            goto err;
-                        }
+                if (cryp_unmap()) {
+                    printf("Unable to unmap cryp!\n");
+                    goto err;
+                }
+                if (token_unmap()) {
+                    printf("Unable to unmap token!\n");
+                    goto err;
+                }
+                clear_other_header();
+                if (token_map()) {
+                    printf("Unable to map token!\n");
+                    goto err;
+                }
+                if (cryp_map()) {
+                    printf("Unable to map cryp!\n");
+                    goto err;
+                }
 #endif
 
 
