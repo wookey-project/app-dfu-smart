@@ -1,7 +1,7 @@
 #include "automaton.h"
 #include "main.h"
-#include "api/stdio.h"
-#include "api/nostd.h"
+#include "libc/stdio.h"
+#include "libc/nostd.h"
 
 static volatile t_dfusmart_state task_state = DFUSMART_STATE_INIT;
 

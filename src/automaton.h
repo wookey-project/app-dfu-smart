@@ -1,7 +1,7 @@
 #ifndef AUTOMATON_H_
 #define AUTOMATON_H_
 
-#include "api/types.h"
+#include "libc/types.h"
 #include "wookey_ipc.h"
 
 typedef enum {

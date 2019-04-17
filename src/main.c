@@ -5,9 +5,9 @@
  *
  */
 
-#include "api/syscall.h"
-#include "api/stdio.h"
-#include "api/nostd.h"
+#include "libc/syscall.h"
+#include "libc/stdio.h"
+#include "libc/nostd.h"
 #include "libcryp.h"
 #include "libtoken_dfu.h"
 #include "aes.h"
@@ -18,7 +18,7 @@
 #include "libfw.h"
 #include "libhash.h"
 #include "handlers.h"
-#include "api/types.h"
+#include "libc/types.h"
 
 uint8_t id_pin = 0;
 

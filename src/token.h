@@ -2,11 +2,11 @@
 #define TOKEN_H_
 
 #include "autoconf.h"
-#include "api/syscall.h"
-#include "api/stdio.h"
-#include "api/nostd.h"
-#include "api/string.h"
-#include "api/types.h"
+#include "libc/syscall.h"
+#include "libc/stdio.h"
+#include "libc/nostd.h"
+#include "libc/string.h"
+#include "libc/types.h"
 #include "libtoken_dfu.h"
 
 token_channel *dfu_get_token_channel(void);

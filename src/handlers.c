@@ -1,7 +1,7 @@
-#include "api/stdio.h"
-#include "api/nostd.h"
-#include "api/types.h"
-#include "api/syscall.h"
+#include "libc/stdio.h"
+#include "libc/nostd.h"
+#include "libc/types.h"
+#include "libc/syscall.h"
 #include "main.h"
 
 volatile status_reg_t status_reg = { 0 }; 
