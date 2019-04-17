@@ -16,8 +16,8 @@ HEX_NAME = $(APP_NAME).hex
 ELF_NAME = $(APP_NAME).elf
 
 # SDK helper Makefiles inclusion
--include $(PROJ_FILES)/Makefile.conf
--include $(PROJ_FILES)/Makefile.gen
+-include $(PROJ_FILES)/m_config.mk
+-include $(PROJ_FILES)/m_generic.mk
 
 # application build directory, relative to the SDK BUILD_DIR environment
 # variable.
