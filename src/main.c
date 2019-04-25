@@ -345,7 +345,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
 #endif
 
 
-    cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, CRYP_PRODMODE, &dma_in_desc, &dma_out_desc);
+    cryp_early_init(false, CRYP_MAP_VOLUNTARY, CRYP_CFG, &dma_in_desc, &dma_out_desc);
     hash_early_init(HASh_TRANS_DMA, HASH_MAP_VOLUNTARY, HASH_POLL_MODE);
 
     init_flash_map();
