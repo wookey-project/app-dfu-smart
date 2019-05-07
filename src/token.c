@@ -62,19 +62,22 @@ int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_
 
     do {
         ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
     /* Now wait for Acknowledge from pin */
     id = id_pin;
     size = sizeof(struct sync_command_data); /* max pin size: 32 */
 
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-    if (   ipc_sync_cmd.magic == resp_magic
-            && ipc_sync_cmd.state == SYNC_DONE) {
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
+    if (   (ipc_sync_cmd.magic == resp_magic)
+            && (ipc_sync_cmd.state == SYNC_DONE)) {
 #if SMART_DEBUG
         printf("received pin from PIN\n");
 #endif
-        if(*pin_len < ipc_sync_cmd.data_size){
+        if((*pin_len) < ipc_sync_cmd.data_size){
               goto err;
         }
         memcpy(pin, (void*)&(ipc_sync_cmd.data.u8), ipc_sync_cmd.data_size);
@@ -109,7 +112,7 @@ int dfu_token_acknowledge_pin(token_ack_state ack, token_pin_types pin_type, tok
     }
 
 
-    if (pin_type == TOKEN_USER_PIN || pin_type == TOKEN_PET_PIN) {
+    if ((pin_type == TOKEN_USER_PIN) || (pin_type == TOKEN_PET_PIN)) {
        ipc_sync_cmd.magic = MAGIC_CRYPTO_PIN_RESP;
     } else {
         goto err;
@@ -119,15 +122,13 @@ int dfu_token_acknowledge_pin(token_ack_state ack, token_pin_types pin_type, tok
     } else{
     	ipc_sync_cmd.state = SYNC_FAILURE;
     }
-    //do {
-        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-        if (ret != SYS_E_DONE) {
+    ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
+    if (ret != SYS_E_DONE) {
 #if SMART_DEBUG
-            printf("unable to acknowledge!\n");
+        printf("unable to acknowledge!\n");
 #endif
-            while (1);
-        }
-    //} while (ret == SYS_E_BUSY);
+        goto err;
+    }
 
     /* an invalid pin is considered as an error, we stop here, returning an error. */
     if (ack != TOKEN_ACK_VALID) {
@@ -161,21 +162,24 @@ int dfu_token_request_pet_name(char *pet_name, unsigned int *pet_name_len)
 
     do {
       ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
     /* Now wait for Acknowledge from pin */
     id = id_pin;
     size = sizeof(struct sync_command_data); /* max pin size: 32 */
 
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
-    if (   ipc_sync_cmd_data.magic == resp_magic
-            && ipc_sync_cmd_data.state == SYNC_DONE) {
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
+    if (   (ipc_sync_cmd_data.magic == resp_magic)
+            && (ipc_sync_cmd_data.state == SYNC_DONE)) {
 #if SMART_DEBUG
         printf("received pet name from PIN: %s, size: %d\n",
                 (char*)ipc_sync_cmd_data.data.u8,
                 ipc_sync_cmd_data.data_size);
 #endif
-        if(*pet_name_len < ipc_sync_cmd_data.data_size){
+        if((*pet_name_len) < ipc_sync_cmd_data.data_size){
 #if SMART_DEBUG
               printf("pet name len (%d) too long !\n", ipc_sync_cmd_data.data_size);
 #endif
@@ -305,7 +309,7 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
 #endif
     do {
         ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
 
 #if SMART_DEBUG
@@ -314,10 +318,13 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
     /* receiving user acknowledge for pet name */
     size = sizeof(struct sync_command);
     id = id_pin;
-    sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
+    ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
 
-    if (ipc_sync_cmd.magic != MAGIC_CRYPTO_PIN_RESP ||
-        ipc_sync_cmd.state != SYNC_ACKNOWLEDGE) {
+    if ((ipc_sync_cmd.magic != MAGIC_CRYPTO_PIN_RESP) ||
+        (ipc_sync_cmd.state != SYNC_ACKNOWLEDGE)) {
 #if SMART_DEBUG
         printf("[AUTH Token] Pen name has not been acknowledged by the user\n");
 #endif

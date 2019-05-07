@@ -400,9 +400,11 @@ int _main(__attribute__((unused)) uint32_t task_id)
     /* First, wait for pin to finish its init phase */
     id = id_pin;
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-
-    if (   ipc_sync_cmd.magic == MAGIC_TASK_STATE_CMD
-        && ipc_sync_cmd.state == SYNC_READY) {
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
+    if (   (ipc_sync_cmd.magic == MAGIC_TASK_STATE_CMD)
+        && (ipc_sync_cmd.state == SYNC_READY)) {
 #if SMART_DEBUG
         printf("pin has finished its init phase, acknowledge...\n");
 #endif
@@ -414,7 +416,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
     do {
         size = sizeof(struct sync_command);
         ret = sys_ipc(IPC_SEND_SYNC, id_pin, size, (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
     /* Then Syncrhonize with crypto */
     size = sizeof(struct sync_command);
@@ -427,14 +429,17 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
     do {
         ret = sys_ipc(IPC_SEND_SYNC, id_crypto, size, (char*)&ipc_sync_cmd);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
     /* Now wait for Acknowledge from Crypto */
     id = id_crypto;
 
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-    if (   ipc_sync_cmd.magic == MAGIC_TASK_STATE_RESP
-        && ipc_sync_cmd.state == SYNC_ACKNOWLEDGE) {
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
+    if (   (ipc_sync_cmd.magic == MAGIC_TASK_STATE_RESP)
+        && (ipc_sync_cmd.state == SYNC_ACKNOWLEDGE)) {
 #if SMART_DEBUG
         printf("crypto has acknowledge end_of_init, continuing\n");
 #endif
@@ -452,8 +457,11 @@ int _main(__attribute__((unused)) uint32_t task_id)
     id = id_crypto;
     size = sizeof(struct sync_command);
     ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd);
-    if (   ipc_sync_cmd.magic == MAGIC_CRYPTO_INJECT_CMD
-        && ipc_sync_cmd.state == SYNC_READY) {
+    if(ret != SYS_E_DONE){
+        goto err;
+    }
+    if (   (ipc_sync_cmd.magic == MAGIC_CRYPTO_INJECT_CMD)
+        && (ipc_sync_cmd.state == SYNC_READY)) {
 #if SMART_DEBUG
         printf("crypto is requesting key injection...\n");
 #endif
@@ -494,7 +502,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
     do {
       size = sizeof(struct sync_command);
       ret = sys_ipc(IPC_SEND_SYNC, id_crypto, size, (char*)&ipc_sync_cmd_data);
-    } while (ret == SYS_E_BUSY);
+    } while (ret != SYS_E_DONE);
 
     // infinite loop at end of init
 #if SMART_DEBUG
@@ -540,7 +548,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         set_task_state(DFUSMART_STATE_HEADER);
                         ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_STARTED;
                         ipc_sync_cmd.state = SYNC_DONE;
-                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+		        if(ret != SYS_E_DONE){
+                            goto err;
+                        }
 
                         /* we send to pin the information that the DFU as started */
                         // A DFU header has been received: get it and parse it
@@ -560,9 +571,9 @@ int _main(__attribute__((unused)) uint32_t task_id)
                                 /* We have filled all our buffer, continue to receive without filling */
                                 continue;
                             }
-                            else if(tmp_buff_offset+ipc_sync_cmd_data.data_size >= sizeof(tmp_buff)){
+                            else if((tmp_buff_offset+ipc_sync_cmd_data.data_size) >= sizeof(tmp_buff)){
                                 memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, sizeof(tmp_buff)-tmp_buff_offset);
-                                tmp_buff_offset += sizeof(tmp_buff)-tmp_buff_offset;
+                                tmp_buff_offset += (sizeof(tmp_buff)-tmp_buff_offset);
                             }
                             else{
                                 memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, ipc_sync_cmd_data.data_size);
@@ -571,7 +582,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             size = sizeof (struct sync_command_data);
                             ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
                             if (ret != SYS_E_DONE) {
-                                continue;
+                                goto err;
                             }
                         }
 
@@ -584,8 +595,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_DONE;
-                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
-
+                            ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            if(ret != SYS_E_DONE){
+                                 goto err;
+                            }
                             continue;
 
                         }
@@ -628,13 +641,19 @@ int _main(__attribute__((unused)) uint32_t task_id)
                 ipc_sync_cmd_data.data.u32[0] = dfu_header.magic;
                 ipc_sync_cmd_data.data.u32[1] = dfu_header.version;
                 ipc_sync_cmd_data.data_size = 2;
-                sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                if(ret != SYS_E_DONE){
+                    goto err;
+                }
 
                 /* Now wait for Acknowledge from pin */
                 id = id_pin;
                 size = sizeof(struct sync_command_data); /* max pin size: 32 */
 
                 ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
+                if(ret != SYS_E_DONE){
+                    goto err;
+                }
 #if SMART_DEBUG
                 printf("received (in)validation from PIN\n");
 #endif
@@ -653,26 +672,6 @@ int _main(__attribute__((unused)) uint32_t task_id)
                 /* before starting cryptographic session, let's check
                  * that this is the good file (i.e. flip for flop mode
                  * and flop for flip mode */
-#if 0
-                if (cryp_unmap()) {
-                    printf("Unable to unmap cryp!\n");
-                    goto err;
-                }
-                if (token_unmap()) {
-                    printf("Unable to unmap token!\n");
-                    goto err;
-                }
-                clear_other_header();
-                if (token_map()) {
-                    printf("Unable to map token!\n");
-                    goto err;
-                }
-                if (cryp_map()) {
-                    printf("Unable to map cryp!\n");
-                    goto err;
-                }
-#endif
-
 
                         if ((is_in_flip_mode() && (firmware_is_partition_flip(&dfu_header) == true)) ||
                             (is_in_flop_mode() && (firmware_is_partition_flop(&dfu_header) == true))  ) {
@@ -682,7 +681,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_BADFILE;
-                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            if(ret != SYS_E_DONE){
+                                goto err;
+                            }
                             /* returning back to IDLE */
                             set_task_state(DFUSMART_STATE_IDLE);
                             continue;
@@ -696,7 +698,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             set_task_state(DFUSMART_STATE_ERROR);
                             ipc_sync_cmd.magic = MAGIC_DFU_HEADER_INVALID;
                             ipc_sync_cmd.state = SYNC_BADFILE;
-                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            if(ret != SYS_E_DONE){
+                                goto err;
+                            }
                             /* returning back to IDLE */
                             set_task_state(DFUSMART_STATE_IDLE);
                             continue;
@@ -726,7 +731,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         ipc_sync_cmd_data.state = SYNC_DONE;
                         ipc_sync_cmd_data.data.u16[0] = dfu_header.chunksize;
                         ipc_sync_cmd_data.data_size = 1;
-                        sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                        ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                        if(ret != SYS_E_DONE){
+                            goto err;
+                        }
 
                         set_task_state(DFUSMART_STATE_DWNLOAD);
 
@@ -761,7 +769,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
                             ipc_sync_cmd.state = SYNC_FAILURE;
 
-                            sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                            if(ret != SYS_E_DONE){
+                                goto err;
+                            }
                             set_task_state(DFUSMART_STATE_ERROR);
                             continue;
                         }
@@ -774,7 +785,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         ipc_sync_cmd.magic = MAGIC_CRYPTO_INJECT_RESP;
                         ipc_sync_cmd.state = SYNC_DONE;
 
-                        sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                        ret = sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+                        if(ret != SYS_E_DONE){
+                            goto err;
+                        }
                         break;
                     }
 
@@ -808,7 +822,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
                 }
                 hash_request(HASH_REQ_IN_PROGRESS, (uint32_t)&tmp_buff, sizeof(dfu_header)-FW_IV_LEN-FW_HMAC_LEN);
                 while (status_reg.dma_done == false){
-                    bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
+                    bool dma_error = (status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err);
                     if(dma_error == true){
                         /* We had a DMA error ... Get out */
                         goto err;
@@ -825,7 +839,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
 				goto err;
 			}
                         while (status_reg.dma_done == false){
-                                bool dma_error = status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err;
+                                bool dma_error = (status_reg.dma_fifo_err || status_reg.dma_dm_err || status_reg.dma_tr_err);
 				if(dma_error == true){
 					/* We had a DMA error ... Get out */
 					goto err;
@@ -885,8 +899,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
             ipc_sync_cmd.magic = MAGIC_DFU_DWNLOAD_FINISHED;
             ipc_sync_cmd.state = SYNC_DONE;
-            sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
-
+            ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command), (char*)&ipc_sync_cmd);
+            if(ret != SYS_E_DONE){
+                goto err;
+            }
             break;
                     }
                     /********* defaulting to none    *************/
@@ -933,7 +949,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
                         ipc_sync_cmd_data.data_size = 1;
                         ipc_sync_cmd_data.data.u32[0] = version;
 
-                        sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+                        ret = sys_ipc(IPC_SEND_SYNC, id_pin, sizeof(struct sync_command_data), (char*)&ipc_sync_cmd_data);
+			if(ret != SYS_E_DONE){
+                            goto err;
+                        }
                         break;
                     }
                 /********* set user pin into smartcard *******/
@@ -983,8 +1002,8 @@ int _main(__attribute__((unused)) uint32_t task_id)
 #if SMART_DEBUG
                             printf("New user pin registered\n");
 #endif
-                        } else if (   ipc_sync_cmd_data.data.req.sc_type == SC_PET_NAME
-                                   && ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY) {
+                        } else if (   (ipc_sync_cmd_data.data.req.sc_type == SC_PET_NAME)
+                                   && (ipc_sync_cmd_data.data.req.sc_req  == SC_REQ_MODIFY)) {
                             /* set the new pet pin. The CRYPTO_DFU_CMD must have been passed and the channel being unlocked */
 #if SMART_DEBUG
                             printf("PIN require a Pet Name update\n");
