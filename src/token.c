@@ -224,6 +224,11 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
 		if(!ret){
 			return 0;
 		}
+		if(ret == -2){
+			/* We cannot start our session because of a malformed/bad header from the token point of view ... */
+			ret = -2;
+			goto err;
+		}
                 if(ret && (num_tries >= channel->error_recovery_max_send_retries)){
 			ret = -1;
                         goto err;
