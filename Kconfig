@@ -12,6 +12,8 @@ config APP_DFUSMART
   ---help---
     Say y if you want to embbed DFUSMART custom application.
 
+if APP_DFUSMART
+
 config APP_DFUSMART_FW
   bool "Dfusmart App for firmware mode"
   depends on APP_DFUSMART
@@ -181,5 +183,7 @@ endmenu
 
 
 endmenu
+
+endif
 
 endmenu
