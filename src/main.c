@@ -20,6 +20,8 @@
 #include "handlers.h"
 #include "libc/types.h"
 
+#define SMART_DEBUG 0
+
 uint8_t id_pin = 0;
 
 /* cryptographic data */
@@ -608,7 +610,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
 #endif
                         if (token_unmap()) {
 #if SMART_DEBUG
-                            printf("Unable to map token!\n");
+                            printf("Unable to unmap token!\n");
 #endif
                             goto err;
                         }
@@ -625,7 +627,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
 		        }
 		        if (cryp_map()) {
 #if SMART_DEBUG
-		             printf("Unable to map token!\n");
+		             printf("Unable to map cryp!\n");
 #endif
 		            goto err;
 		        }
@@ -875,7 +877,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
             }
             if (cryp_unmap()) {
 #if SMART_DEBUG
-                printf("Unable to map cryp!\n");
+                printf("Unable to unmap cryp!\n");
 #endif
                 goto err;
             }

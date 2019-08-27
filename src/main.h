@@ -1,7 +1,7 @@
 #ifndef MAIN_H_
 # define MAIN_H_
 
-#define SMART_DEBUG 0
+//#define SMART_DEBUG 0
 #include "automaton.h"
 
 typedef struct {

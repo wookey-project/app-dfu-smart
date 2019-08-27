@@ -210,39 +210,43 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
 
 	/* Sanity check */
 	if(saved_decrypted_keybag_num < 3){
+        printf("not enough decrypted keybag %d\n", saved_decrypted_keybag_num);
 		ret = -1;
 		goto err;
 	}
 	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
+        printf("invallid channel or curve %x\n", channel);
 		ret = -1;
 		goto err;
 	}
 	curve = channel->curve;
-        while(1){
-		ret = dfu_token_begin_decrypt_session(channel, header, header_len);
-                num_tries++;
-		if(!ret){
-			return 0;
-		}
-		if(ret == -2){
-			/* We cannot start our session because of a malformed/bad header from the token point of view ... */
-			ret = -2;
-			goto err;
-		}
-                if(ret && (num_tries >= channel->error_recovery_max_send_retries)){
-			ret = -1;
-                        goto err;
-                }
-		/* We try to renegotiate a secure channel */
-		token_zeroize_secure_channel(channel);
-		if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
-			ret = -1;
-			goto err;
-		}
-	}
+    while(1){
+        ret = dfu_token_begin_decrypt_session(channel, header, header_len);
+        num_tries++;
+        if(!ret){
+            return 0;
+        }
+        if(ret == -2){
+            /* We cannot start our session because of a malformed/bad header from the token point of view ... */
+            printf("bad token header\n");
+            ret = -2;
+            goto err;
+        }
+        if(ret && (num_tries >= channel->error_recovery_max_send_retries)){
+            ret = -1;
+            goto err;
+        }
+        /* We try to renegotiate a secure channel */
+        token_zeroize_secure_channel(channel);
+        if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
+            printf("unable to initialize secure channel\n");
+            ret = -1;
+            goto err;
+        }
+    }
 
 err:
-        return ret;
+    return ret;
 }
 
 
