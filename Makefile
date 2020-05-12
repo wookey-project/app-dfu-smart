@@ -89,7 +89,7 @@ $(LIBDEP):
 
 # drivers dependencies
 SOCDRVDEP := $(BUILD_DIR)/drivers/libcryp/libcryp.a \
-             $(BUILD_DIR)/drivers/libiso7816/libiso7816.a \
+             $(BUILD_DIR)/drivers/libdrviso7816/libdrviso7816.a \
              $(BUILD_DIR)/drivers/libusart/libusart.a \
              $(BUILD_DIR)/drivers/libhash/libhash.a \
              $(BUILD_DIR)/drivers/libflash/libflash.a
