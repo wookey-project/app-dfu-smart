@@ -19,6 +19,7 @@
 #include "libhash.h"
 #include "handlers.h"
 #include "libc/types.h"
+#include "libc/sanhandlers.h"
 
 #define SMART_DEBUG 0
 
@@ -449,6 +450,8 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
     /* Register smartcard removal handler */
     dfu_get_token_channel()->card.type = SMARTCARD_CONTACT;
+    /* Register our callback */
+    ADD_LOC_HANDLER(smartcard_removal_action)
     SC_register_user_handler_action(&(dfu_get_token_channel()->card), smartcard_removal_action);
     dfu_get_token_channel()->card.type = SMARTCARD_UNKNOWN;
 
@@ -480,6 +483,12 @@ int _main(__attribute__((unused)) uint32_t task_id)
         .request_pet_name              = dfu_token_request_pet_name,
         .request_pet_name_confirmation = dfu_token_request_pet_name_confirmation
     };
+    /* Register our calbacks */
+    ADD_LOC_HANDLER(dfu_token_request_pin)
+    ADD_LOC_HANDLER(dfu_token_acknowledge_pin)
+    ADD_LOC_HANDLER(dfu_token_request_pet_name)
+    ADD_LOC_HANDLER(dfu_token_request_pet_name_confirmation)
+
     /* this call generates authentication request to PIN */
 
     if(!tokenret && dfu_token_exchanges(dfu_get_token_channel(), &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))

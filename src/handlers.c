@@ -2,6 +2,7 @@
 #include "libc/nostd.h"
 #include "libc/types.h"
 #include "libc/syscall.h"
+#include "libc/sanhandlers.h"
 #include "main.h"
 
 volatile status_reg_t status_reg = { 0 }; 
@@ -24,8 +25,11 @@ void hash_dma_cb(__attribute__((unused)) uint8_t irq, uint32_t status)
         status_reg.dma_done = true;
     }
 }
-
+/* Register handler */
+ADD_GLOB_HANDLER(hash_dma_cb)
 
 void hash_eodigest_cb(__attribute__((unused)) uint8_t irq, __attribute__((unused)) uint32_t status)
 {
 }
+/* Register handler */
+ADD_GLOB_HANDLER(hash_eodigest_cb)
