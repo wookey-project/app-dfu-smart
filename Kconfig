@@ -31,17 +31,13 @@ config APP_DFUSMART_DFU
   ---help---
     Say y if you want to embbed Dfusmart custom application in DFU.
 
-config APP_DFUSMART_NUMSLOTS
-  int "Number of required slots"
+config APP_DFUSMART_HEAPSIZE
+  int "Heap section size"
   depends on APP_DFUSMART
-  default 1
+  default 0
   ---help---
-    specify the number of slots required by the application text and data/bss.
-    remember that the number of total slots is limited by the hardware.
-    For example, there is 8 32kb sized slots in STM32F4, reduced to 7 when using SHM for
-    .text + .data in flash, and 8 (reduced to 7 with SHM) slots of 16kb in RAM.
-    This choice has an impact on the total number of applications that can be loaded
-    in the firmware.
+    specify the requested heap size in bytes. Only requested if dynamic memory
+    primitives are used (typically malloc())
 
 config APP_DFUSMART_STACKSIZE
   int "Stack size"
