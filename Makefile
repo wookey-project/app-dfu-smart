@@ -4,6 +4,7 @@
 
 # Application name, can be suffixed by the SDK
 APP_NAME ?= dfusmart
+APP_LDSCRIPT = $(patsubst -T%.ld,%.ld,$(filter -T%.ld, $(EXTRA_LDFLAGS)))
 # application build directory name
 DIR_NAME = dfusmart
 
@@ -136,8 +137,24 @@ show:
 
 all: $(APP_BUILD_DIR) alldeps app
 
+# Smart is the lonely app using a dedicated section, named
+# 'NOUPDATE'. This section hold the encrypted keybag.
+# Although, this section is not mapped by the task itself, but by the
+# bootloader, which is responsible for copying the encrypted keybag
+# from the NOUPDATE section to the SecureRAM.
+# Smart access the keybag in the secureRAM directly.
+# The goal, here, is to allow firmware upgrade without requiring the
+# private AUTH key knowledge. Only the SIG key is required to build
+# a fully functional firmware. To do this, the generated firmware image
+# must be truncated of the NOUPGRADE secion, which should never be updated
+#
+# Here, we add NOUPGRADE memory layout and .noupgrade section to the
+# generic app ldscripts before compiling and linking
+#
+update_ld:
+	sed -f update_ld.sed -i $(APP_BUILD_DIR)/$(APP_LDSCRIPT)
 
-app: $(APP_BUILD_DIR)/$(ELF_NAME) $(APP_BUILD_DIR)/$(HEX_NAME)
+app: update_ld $(APP_BUILD_DIR)/$(ELF_NAME) $(APP_BUILD_DIR)/$(HEX_NAME)
 
 $(APP_BUILD_DIR)/%.o: %.c
 	$(call if_changed,cc_o_c)
