@@ -59,6 +59,17 @@ config APP_DFUSMART_PRIO
     When using priority and RMA scheduling, please take care to yield()
     as much as possible to avoid deny of service to lower priority tasks
 
+config APP_DFUSMART_USE_BKUP_SRAM
+  bool "Dfusmart App Backup SRAM usage for keybags"
+  depends on APP_DFUSMART
+  depends on FIRMWARE_DFU
+  depends on STM32F4
+  default y
+  ---help---
+    Say y if you want to use Backup SRAM for keybag storage (this is better for
+    firmware security and hence put tu y as default).
+
+
 menu "Permissions"
     visible if APP_DFUSMART
 
