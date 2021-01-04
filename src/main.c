@@ -20,10 +20,74 @@
 #include "handlers.h"
 #include "libc/types.h"
 #include "libc/sanhandlers.h"
+#include "generated/backup_sram.h"
 
 #define SMART_DEBUG 0
 
 uint8_t id_pin = 0;
+
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+/* Map and unmap the Backup SRAM */
+static volatile bool backup_sram_is_mapped = false;
+static volatile int  dev_backup_sram_desc = 0;
+static int backup_sram_init(void){
+    const char *name = "backup-sram";
+    e_syscall_ret ret = 0;
+
+    device_t dev;
+    memset((void*)&dev, 0, sizeof(device_t));
+    strncpy(dev.name, name, sizeof (dev.name));
+    dev.address = backup_sram_dev_infos.address;
+    dev.size = backup_sram_dev_infos.size;
+    dev.map_mode = DEV_MAP_VOLUNTARY;
+
+    dev.irq_num = 0;
+    dev.gpio_num = 0;
+    int dev_backup_sram_desc_ = dev_backup_sram_desc;
+    ret = sys_init(INIT_DEVACCESS, &dev, (int*)&dev_backup_sram_desc_);
+    if(ret != SYS_E_DONE){
+        printf("Error: Backup SRAM, sys_init error!\n");
+        goto err;
+    }
+    dev_backup_sram_desc = dev_backup_sram_desc_;
+
+    return 0;
+err:
+    return -1;
+}
+
+static int backup_sram_map(void){
+    if(backup_sram_is_mapped == false){
+        e_syscall_ret ret;
+        ret = sys_cfg(CFG_DEV_MAP, dev_backup_sram_desc);
+        backup_sram_is_mapped = true;
+        if (ret != SYS_E_DONE) {
+            printf("Unable to map Backup SRAM!\n");
+            goto err;
+        }
+    }
+
+    return 0;
+err:
+    return -1;
+}
+
+static int backup_sram_unmap(void){
+    if(backup_sram_is_mapped){
+        e_syscall_ret ret;
+        ret = sys_cfg(CFG_DEV_UNMAP, dev_backup_sram_desc);
+        dev_backup_sram_desc = false;
+        if (ret != SYS_E_DONE) {
+            printf("Unable to unmap cryp!\n");
+            goto err;
+        }
+    }
+
+    return 0;
+err:
+    return -1;
+}
+#endif
 
 /* cryptographic data */
 /* NB: we get back our decrypted signature public key here */
@@ -377,6 +441,12 @@ int _main(__attribute__((unused)) uint32_t task_id)
             break;
     }
 
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+    if(backup_sram_init()){
+        goto err;
+    }
+#endif
+
 #if SMART_DEBUG
     printf("set init as done\n");
 #endif
@@ -476,6 +546,13 @@ int _main(__attribute__((unused)) uint32_t task_id)
      * DFU token communication
      *********************************************/
 
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+    /* Map the Backup SRAM to get our keybags*/
+    if(backup_sram_map()){
+        goto err;
+    }
+#endif
+
    /* Token callbacks */
     cb_token_callbacks dfu_token_callbacks = {
         .request_pin                   = dfu_token_request_pin,
@@ -495,6 +572,12 @@ int _main(__attribute__((unused)) uint32_t task_id)
     {
         goto err;
     }
+
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+    if(backup_sram_unmap()){
+        goto err;
+    }
+#endif
 
 #if SMART_DEBUG
     printf("cryptography and smartcard initialization done!\n");
