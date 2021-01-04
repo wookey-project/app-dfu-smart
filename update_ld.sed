@@ -11,11 +11,11 @@
     s/^/  \/* keybag storage, not upgradable through DFU *\/\n/;
 }
 
+
 $s/^\}$/\
-      \/* keybag storage sections *\/\n\
-      .noupgrade_auth       :\n      {\n          _s_noupgrade_auth = .;      \n          *(.noupgrade.auth)            \n           _e_noupgrade_auth = .;      \n          . = ALIGN(4);\n      }>BKP_SRAM\n\
-      .noupgrade_auth_flash :\n      {\n          _s_noupgrade_auth_flash = .;\n          KEEP(*(.noupgrade.auth.flash))\n           _e_noupgrade_auth_flash = .;\n          . = ALIGN(4);\n      }>NOUPGRADE_AUTH\n\
-      .noupgrade_dfu        :\n      {\n          _s_noupgrade_dfu = .;       \n          *(.noupgrade.dfu)             \n           _e_noupgrade_dfu = .;       \n          . = ALIGN(4);\n      }>BKP_SRAM\n\
-      .noupgrade_dfu_flash  :\n      {\n          _s_noupgrade_dfu_flash = .; \n          KEEP(*(.noupgrade.dfu.flash)) \n           _e_noupgrade_dfu_flash = .; \n          . = ALIGN(4);\n      }>NOUPGRADE_DFU\n\
-      .noupgrade_sig        :\n      {\n          _s_noupgrade_sig = .;       \n          *(.noupgrade.sig)             \n           _e_noupgrade_sig = .;       \n          . = ALIGN(4);\n      }>BKP_SRAM AT>NOUPGRADE_SIG\n\
-      .noupgrade_sig_flash  :\n      {\n          _s_noupgrade_sig_flash = .; \n          KEEP(*(.noupgrade.sig.flash)) \n           _e_noupgrade_sig_flash = .; \n      }>NOUPGRADE_SIG\n}/
+  OVERLAY ORIGIN(BKP_SRAM) : NOCROSSREFS AT (ORIGIN(NOUPGRADE_DFU))\
+  {\
+      .noupgrade_auth_bkup { *(.noupgrade.auth) }\
+      .noupgrade_dfu_bkup { *(.noupgrade.dfu) }\
+      .noupgrade_sig_bkup { *(.noupgrade.sig) }\
+  }\n}/
