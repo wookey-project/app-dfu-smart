@@ -15,7 +15,7 @@
 $s/^\}$/\
   OVERLAY ORIGIN(BKP_SRAM) : NOCROSSREFS AT (ORIGIN(NOUPGRADE_DFU))\
   {\
-      .noupgrade_auth_bkup { *(.noupgrade.auth) }\
       .noupgrade_dfu_bkup { *(.noupgrade.dfu) }\
+      .noupgrade_auth_bkup { *(.noupgrade.auth) }\
       .noupgrade_sig_bkup { *(.noupgrade.sig) }\
   }\n}/
