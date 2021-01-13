@@ -29,7 +29,6 @@ APP_BUILD_DIR = $(BUILD_DIR)/apps/$(DIR_NAME)
 ###################################################################
 
 CFLAGS := $(APPS_CFLAGS)
-CFLAGS += -Isrc
 # here we need libecc headers
 CFLAGS += -I$(PROJ_FILES)/externals/libecc/src $(EXTERNAL_CFLAGS)
 
@@ -41,7 +40,7 @@ CFLAGS += -I$(PROJ_FILES)/externals/libecc/src $(EXTERNAL_CFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR)
 
 # project's library you whish to use...
-LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -laes -lhmac -lstd -lsign -lfirmware -lhash -lflash
+LD_LIBS += -ltoken -lsmartcard -liso7816 -ldrviso7816 -lcryp -lusart -laes -lhmac -lstd -lsign -lfirmware -lhash -lflash -Wl,--no-whole-archive
 
 ###################################################################
 # okay let's list our source files and generated files now
@@ -137,7 +136,7 @@ show:
 
 all: $(APP_BUILD_DIR) alldeps app
 
-# Smart is the lonely app using a dedicated section, named
+# DFUsmart is an app using a dedicated section, named
 # 'NOUPDATE'. This section hold the encrypted keybag.
 # Although, this section is not mapped by the task itself, but by the
 # bootloader, which is responsible for copying the encrypted keybag
@@ -160,11 +159,12 @@ app: update_ld $(APP_BUILD_DIR)/$(ELF_NAME) $(APP_BUILD_DIR)/$(HEX_NAME)
 $(APP_BUILD_DIR)/%.o: %.c
 	$(call if_changed,cc_o_c)
 
+CROSS_OBJCOPY_ARGS="--keep-section=.noupgrade_dfu"
 # ELF
 $(APP_BUILD_DIR)/$(ELF_NAME): $(OBJ)
 	$(call if_changed,link_o_target)
+	$(OBJCOPY) $(APP_BUILD_DIR)/$(ELF_NAME) $(APP_BUILD_DIR)/$(ELF_NAME)
 
-CROSS_OBJCOPY_ARGS="--keep-section=.noupgrade_dfu"
 # HEX
 $(APP_BUILD_DIR)/$(HEX_NAME): $(APP_BUILD_DIR)/$(ELF_NAME)
 	$(call if_changed,objcopy_ihex)
