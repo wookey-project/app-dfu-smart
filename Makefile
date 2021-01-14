@@ -163,7 +163,6 @@ CROSS_OBJCOPY_ARGS="--keep-section=.noupgrade_dfu"
 # ELF
 $(APP_BUILD_DIR)/$(ELF_NAME): $(OBJ)
 	$(call if_changed,link_o_target)
-	$(OBJCOPY) $(APP_BUILD_DIR)/$(ELF_NAME) $(APP_BUILD_DIR)/$(ELF_NAME)
 
 # HEX
 $(APP_BUILD_DIR)/$(HEX_NAME): $(APP_BUILD_DIR)/$(ELF_NAME)
