@@ -64,6 +64,7 @@ config APP_DFUSMART_USE_BKUP_SRAM
   depends on APP_DFUSMART
   depends on FIRMWARE_DFU
   depends on STM32F4
+  select LOADER_BSRAM_KEYBAG_DFU
   default y
   ---help---
     Say y if you want to use Backup SRAM for keybag storage (this is better for
