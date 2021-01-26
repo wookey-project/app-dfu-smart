@@ -56,7 +56,7 @@ err:
     return -1;
 }
 
-static int bsram_keybag_map(void){
+int bsram_keybag_map(void){
     if(bsram_keybag_is_mapped == false){
         e_syscall_ret ret;
         ret = sys_cfg(CFG_DEV_MAP, dev_bsram_keybag_desc);
@@ -72,7 +72,7 @@ err:
     return -1;
 }
 
-static int bsram_keybag_unmap(void){
+int bsram_keybag_unmap(void){
     if(bsram_keybag_is_mapped){
         e_syscall_ret ret;
         ret = sys_cfg(CFG_DEV_UNMAP, dev_bsram_keybag_desc);
@@ -91,7 +91,7 @@ err:
 
 /* cryptographic data */
 /* NB: we get back our decrypted signature public key here */
-unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
+unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
 unsigned int decrypted_sig_pub_key_data_len = sizeof(decrypted_sig_pub_key_data);
 /* We save our secure channel mounting keys since we want */
 unsigned char decrypted_token_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE] = { 0 };
@@ -110,6 +110,37 @@ static void smartcard_removal_action(void){
         sys_reset();
         while(1);
     }
+}
+
+/* Token intialization and negotiation */
+int wrap_dfu_token_exchanges(token_channel *channel, cb_token_callbacks *callbacks, unsigned char *decrypted_sig_pub_key_data, unsigned int *decrypted_sig_pub_key_data_len, databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num)
+{
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+    if(cryp_unmap()){
+        goto err;
+    }
+    /* Map the Backup SRAM to get our keybags*/
+    if(bsram_keybag_map()){
+        goto err;
+    }
+#endif
+    if(dfu_token_exchanges(channel, callbacks, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, saved_decrypted_keybag, saved_decrypted_keybag_num)){
+        goto err;
+    }
+#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
+    /* Unmap the Backup SRAM */
+    if(bsram_keybag_unmap()){
+        goto err;
+    }
+    if(cryp_map()){
+        goto err;
+    }
+#endif
+
+    return 0;
+
+err:
+    return -1;
 }
 
 /* Current index of chunk treated */
@@ -546,14 +577,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
      * DFU token communication
      *********************************************/
 
-#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
-    /* Map the Backup SRAM to get our keybags*/
-    if(bsram_keybag_map()){
-        goto err;
-    }
-#endif
-
-   /* Token callbacks */
+    /* Token callbacks */
     cb_token_callbacks dfu_token_callbacks = {
         .request_pin                   = dfu_token_request_pin,
         .acknowledge_pin               = dfu_token_acknowledge_pin,
@@ -568,16 +592,10 @@ int _main(__attribute__((unused)) uint32_t task_id)
 
     /* this call generates authentication request to PIN */
 
-    if(!tokenret && dfu_token_exchanges(dfu_get_token_channel(), &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
+    if(!tokenret && wrap_dfu_token_exchanges(dfu_get_token_channel(), &dfu_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, saved_decrypted_keybag, sizeof(saved_decrypted_keybag)/sizeof(databag)))
     {
         goto err;
     }
-
-#ifdef CONFIG_APP_DFUSMART_USE_BKUP_SRAM
-    if(bsram_keybag_unmap()){
-        goto err;
-    }
-#endif
 
 #if SMART_DEBUG
     printf("cryptography and smartcard initialization done!\n");
