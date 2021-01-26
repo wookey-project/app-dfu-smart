@@ -1,6 +1,7 @@
 #include "main.h"
 #include "token.h"
 #include "wookey_ipc.h"
+#include "libc/sanhandlers.h"
 
 extern uint8_t id_pin; /* should be replaced by a getter */
 
@@ -11,6 +12,93 @@ token_channel *dfu_get_token_channel(void)
     return &curr_token_channel;
 }
 
+/* [RB] NOTE: since sending APDUs during heavily loaded tasks scheduling is challenging, we have to deal with possible
+ * smartcard secure channel loss ... In order to recover from such an issue, we try to renegotiate the secure channel
+ * using saved keys. This is not satisfying from a security perspective: we want to forget/erase such keys asap. However,
+ * from an end user perspective, providing the PINs each time a desynchronization is detected can be very painful.
+ * One should notice that such a recovery system is specifically necessary during DFU since the USB task is on heavy duty
+ * with keep alive requests from the host to answer with timing constraints ...
+ */
+#define MAX_PIN_SIZE	 	16
+static uint8_t saved_pet_pin[MAX_PIN_SIZE] = { 0 };
+static volatile unsigned int saved_pet_pin_len = 0;
+static uint8_t saved_user_pin[MAX_PIN_SIZE] = { 0 };
+static volatile unsigned int saved_user_pin_len = 0;
+static volatile uint8_t saved_pin_action = 0;
+#define MAX_PET_NAME_LEN  	32
+static uint8_t saved_pet_name[MAX_PET_NAME_LEN] = { 0 };
+static volatile unsigned int saved_pet_name_len = 0;
+
+#define ATTR_UNUSED __attribute__((unused))
+
+static int dfu_error_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_type, token_pin_actions action)
+{
+    if(action == TOKEN_PIN_AUTHENTICATE){
+        if(pin_type == TOKEN_PET_PIN){
+            if(*pin_len < saved_pet_pin_len){
+                goto err;
+            }
+            else{
+                memcpy(pin, saved_pet_pin, saved_pet_pin_len);
+                *pin_len = saved_pet_pin_len;
+            }
+        }
+        else if(pin_type == TOKEN_USER_PIN){
+            if(*pin_len < saved_user_pin_len){
+                goto err;
+            }
+            else{
+                memcpy(pin, saved_user_pin, saved_user_pin_len);
+                *pin_len = saved_user_pin_len;
+            }
+        }
+        else{
+            goto err;
+        }
+    }
+    else{
+        goto err;
+    }
+
+    return 0;
+
+err:
+    return -1;
+}
+
+static int dfu_error_token_acknowledge_pin(ATTR_UNUSED token_ack_state ack, ATTR_UNUSED token_pin_types pin_type, ATTR_UNUSED token_pin_actions action, ATTR_UNUSED uint32_t remaining_tries)
+{
+    return 0;
+}
+
+static int dfu_error_token_request_pet_name_confirmation(const char *pet_name, unsigned int pet_name_len)
+{
+    if(saved_pet_name_len != pet_name_len){
+        goto err;
+    }
+    if(memcmp(&saved_pet_name, pet_name, pet_name_len) != 0){
+        goto err;
+    }
+    return 0;
+
+err:
+    return -1;
+}
+
+/* Token error callbacks */
+cb_token_callbacks dfu_error_token_callbacks = {
+    .request_pin                   = dfu_error_token_request_pin,
+    .acknowledge_pin               = dfu_error_token_acknowledge_pin,
+    .request_pet_name              = NULL,
+    .request_pet_name_confirmation = dfu_error_token_request_pet_name_confirmation
+};
+/* Register our calbacks */
+ADD_GLOB_HANDLER(dfu_error_token_request_pin)
+ADD_GLOB_HANDLER(dfu_error_token_acknowledge_pin)
+ADD_GLOB_HANDLER(dfu_error_token_request_pet_name_confirmation)
+
+
+/****************************************************************/
 int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_type, token_pin_actions action)
 {
     struct sync_command_data ipc_sync_cmd = { 0 };
@@ -82,6 +170,24 @@ int dfu_token_request_pin(char *pin, unsigned int *pin_len, token_pin_types pin_
         }
         memcpy(pin, (void*)&(ipc_sync_cmd.data.u8), ipc_sync_cmd.data_size);
         *pin_len = ipc_sync_cmd.data_size;
+        /* Save our pin */
+        if(action == TOKEN_PIN_AUTHENTICATE){
+            if(*pin_len > MAX_PIN_SIZE){
+                goto err;
+            }
+            if(pin_type == TOKEN_PET_PIN){
+                memcpy(&saved_pet_pin, pin, *pin_len);
+                saved_pet_pin_len = *pin_len;
+            }
+            else if(pin_type == TOKEN_USER_PIN){
+                memcpy(&saved_user_pin, pin, *pin_len);
+                saved_user_pin_len = *pin_len;
+            }
+            else{
+                goto err;
+            }
+        }
+
         return 0;
     }
 
@@ -194,6 +300,9 @@ err:
     return -1;
 }
 
+
+extern int wrap_dfu_token_exchanges(token_channel *channel, cb_token_callbacks *callbacks, unsigned char *decrypted_sig_pub_key_data, unsigned int *decrypted_sig_pub_key_data_len, databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num);
+
 /* [RB] NOTE: since sending APDUs during heavily loaded tasks scheduling is challenging, we have to deal with possible
  * smartcard secure channel loss ... In order to recover from such an issue, we try to renegotiate the secure channel
  * using saved keys. This is not satisfying from a security perspective: we want to forget/erase such keys asap. However,
@@ -201,6 +310,10 @@ err:
  * One should notice that such a recovery system is specifically necessary during DFU since the USB task is on heavy duty
  * with keep alive requests from the host to answer with timing constraints ...
  */
+#define MAX_HEADER_SIZE		1024
+static unsigned char saved_header[MAX_HEADER_SIZE] = { 0 };
+static volatile uint32_t saved_header_len = 0;
+
 int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const unsigned char *header, uint32_t header_len, const databag *saved_decrypted_keybag, uint32_t saved_decrypted_keybag_num){
         unsigned int num_tries;
         int ret = 0;
@@ -209,13 +322,18 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
         ec_curve_type curve;
 
 	/* Sanity check */
+        if(header == NULL){
+                printf("Header NULL\n");
+		ret = -1;
+		goto err;
+        }
 	if(saved_decrypted_keybag_num < 3){
-        printf("not enough decrypted keybag %d\n", saved_decrypted_keybag_num);
+                printf("not enough decrypted keybag %d\n", saved_decrypted_keybag_num);
 		ret = -1;
 		goto err;
 	}
 	if((channel == NULL) || (channel->curve == UNKNOWN_CURVE)){
-        printf("invallid channel or curve %x\n", channel);
+                printf("invalid channel or curve %x\n", channel);
 		ret = -1;
 		goto err;
 	}
@@ -224,6 +342,12 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
         ret = dfu_token_begin_decrypt_session(channel, header, header_len);
         num_tries++;
         if(!ret){
+            if(header_len > sizeof(saved_header)){
+                ret = -1;
+                goto err;
+            }
+            saved_header_len = header_len;
+            memcpy(saved_header, header, header_len);
             return 0;
         }
         if(ret == -2){
@@ -240,8 +364,14 @@ int dfu_token_begin_decrypt_session_with_error(token_channel *channel, const uns
         token_zeroize_secure_channel(channel);
         if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries)){
             printf("unable to initialize secure channel\n");
-            ret = -1;
-            goto err;
+            /* Last chance, reinitialize entirely communication with the token */
+            extern unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
+            extern unsigned int decrypted_sig_pub_key_data_len;
+            if(wrap_dfu_token_exchanges(channel, &dfu_error_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, NULL, 0))
+            {
+                ret = -1;
+                goto err;
+            }
         }
     }
 
@@ -282,8 +412,20 @@ int dfu_token_derive_key_with_error(token_channel *channel, unsigned char *deriv
         token_zeroize_secure_channel(channel);
         if(token_secure_channel_init(channel, saved_decrypted_keybag[1].data, saved_decrypted_keybag[1].size, saved_decrypted_keybag[2].data, saved_decrypted_keybag[2].size, saved_decrypted_keybag[0].data, saved_decrypted_keybag[0].size, curve, &remaining_tries))
         {
-            ret = -1;
-            goto err;
+            printf("unable to initialize secure channel\n");
+            /* Last chance, reinitialize entirely communication with the token */
+            extern unsigned char decrypted_sig_pub_key_data[EC_STRUCTURED_PUB_KEY_MAX_EXPORT_SIZE];
+            extern unsigned int decrypted_sig_pub_key_data_len;
+            if(wrap_dfu_token_exchanges(channel, &dfu_error_token_callbacks, decrypted_sig_pub_key_data, &decrypted_sig_pub_key_data_len, NULL, 0))
+            {
+                ret = -1;
+                goto err;
+            }
+            /* Open our decryption session again */
+            if(dfu_token_begin_decrypt_session_with_error(channel, saved_header, saved_header_len, saved_decrypted_keybag, saved_decrypted_keybag_num)){
+                ret = -1;
+                goto err;
+            }
         }
     }
 
@@ -343,6 +485,13 @@ int dfu_token_request_pet_name_confirmation(const char *pet_name, unsigned int p
 #if SMART_DEBUG
     printf("[AUTH Token] Pen name acknowledge by the user\n");
 #endif
+    if(pet_name_len > sizeof(saved_pet_name)){
+        goto err;
+    }
+    else{
+        saved_pet_name_len = pet_name_len;
+        memcpy(&saved_pet_name, pet_name, pet_name_len);
+    }
 
     return 0;
 err:
