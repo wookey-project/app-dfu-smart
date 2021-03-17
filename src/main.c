@@ -257,8 +257,6 @@ void init_flash_map(void)
 #endif
 static secbool check_signature(const firmware_header_t *dfu_header, const uint8_t firmware_sig[EC_MAX_SIGLEN], const uint8_t *digest, uint32_t sizeofdigest){
 	uint8_t siglen;
-	const ec_str_params *the_curve_const_parameters;
-	ec_params curve_params;
 	struct ec_verify_context verif_ctx, verif_ctx_double_check;
 	ec_pub_key sig_pub_key;
 
@@ -266,10 +264,15 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 		goto err;
 	}
 	/* Check the signature */
-	/* Map the curve parameters to our libecc internal representation */
-        the_curve_const_parameters = ec_get_curve_params_by_type(dfu_get_token_channel()->curve);
-        import_params(&curve_params, the_curve_const_parameters);
-        if(ec_get_sig_len(&curve_params, ECDSA, SHA256, &siglen)){
+        /* Import curve if not done */
+        ec_params *curve_params;
+        if(load_curve_parameters(SECP256R1, &curve_params)){
+            goto err;
+        }
+        if(curve_params == NULL){
+            goto err;
+        }
+        if(ec_get_sig_len(curve_params, ECDSA, SHA256, &siglen)){
 #if SMART_DEBUG
 		printf("Error: ec_get_sig_len error\n");
 #endif
@@ -282,7 +285,7 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 #endif
 		goto err;
 	}
-	if(ec_structured_pub_key_import_from_buf(&sig_pub_key, &curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
+	if(ec_structured_pub_key_import_from_buf(&sig_pub_key, curve_params, decrypted_sig_pub_key_data, decrypted_sig_pub_key_data_len, ECDSA)){
 #if SMART_DEBUG
 		printf("Error: ec_structured_pub_key_import_from_buf\n");
 #endif
