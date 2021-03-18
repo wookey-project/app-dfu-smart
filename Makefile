@@ -30,7 +30,8 @@ APP_BUILD_DIR = $(BUILD_DIR)/apps/$(DIR_NAME)
 
 CFLAGS := $(APPS_CFLAGS)
 # here we need libecc headers
-CFLAGS += -I$(PROJ_FILES)/externals/libecc/src $(EXTERNAL_CFLAGS)
+# libfido needs libecc
+CFLAGS += -I$(PROJ_FILES)/externals/libecc/src $(EXTERNAL_CFLAGS) $(LIBSIGN_CFLAGS)
 
 ###################################################################
 # About the link step
