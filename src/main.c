@@ -319,13 +319,13 @@ static secbool check_signature(const firmware_header_t *dfu_header, const uint8_
 	/* Verify the signature with double check (against faults) */
 	int ec_ret1 = 0x55aa55aa, ec_ret2 = 0xaa55aa55;
 	int ec_ret1_ = 0xaa55aa55, ec_ret2_ = 0x55aa55aa;
-	if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+	if(ec_verify_init(&verif_ctx, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256, NULL, 0)){
 #if SMART_DEBUG
 		printf("Error: ec_verify_init\n");
 #endif
 		goto err;
 	}
-	if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256)){
+	if(ec_verify_init(&verif_ctx_double_check, &sig_pub_key, firmware_sig, siglen, ECDSA, SHA256, NULL, 0)){
 #if SMART_DEBUG
 		printf("Error: ec_verify_init\n");
 #endif
