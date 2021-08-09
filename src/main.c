@@ -708,7 +708,7 @@ int _main(__attribute__((unused)) uint32_t task_id)
                             }
                             if(tmp_buff_offset >= sizeof(tmp_buff)){
                                 /* We have filled all our buffer, continue to receive without filling */
-                                continue;
+				goto recv;
                             }
                             else if((tmp_buff_offset+ipc_sync_cmd_data.data_size) >= sizeof(tmp_buff)){
                                 memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, sizeof(tmp_buff)-tmp_buff_offset);
@@ -718,13 +718,13 @@ int _main(__attribute__((unused)) uint32_t task_id)
                                 memcpy(tmp_buff+tmp_buff_offset, ipc_sync_cmd_data.data.u8, ipc_sync_cmd_data.data_size);
                                 tmp_buff_offset += ipc_sync_cmd_data.data_size;
                             }
+recv:
                             size = sizeof (struct sync_command_data);
                             ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char*)&ipc_sync_cmd_data);
                             if (ret != SYS_E_DONE) {
                                 goto err;
                             }
                         }
-
                         set_task_state(DFUSMART_STATE_AUTH);
 
                         if(firmware_parse_header(tmp_buff, sizeof(tmp_buff), sizeof(firmware_sig), &dfu_header, firmware_sig)){
